@@ -429,7 +429,7 @@ class OKOTrainer:
                 """
 
             if epoch > self.optimizer_config.burnin:
-                _, self.early_stop = self.early_stop.update(test_performance[1])
+                self.early_stop = self.early_stop.update(test_performance[1])
                 if self.early_stop.should_stop:
                     print("\nMet early stopping criteria, stopping training...\n")
                     break

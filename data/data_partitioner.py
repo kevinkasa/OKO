@@ -48,7 +48,7 @@ class DataPartitioner:
         self.n_classes = self.classes.shape[0]
 
     def get_instances(
-        self, hist: FP32orFP64[np.ndarray, "num_cls"]
+            self, hist: FP32orFP64[np.ndarray, "num_cls"]
     ) -> Dict[int, FP32orFP64[np.ndarray, "_"]]:
         class_samples = {}
         for k in self.classes:
@@ -65,7 +65,7 @@ class DataPartitioner:
         return class_samples
 
     def sample_examples(
-        self, n_classes: int, n_totals: int, p: float
+            self, n_classes: int, n_totals: int, p: float
     ) -> FP32orFP64[np.ndarray, "n_totals"]:
         class_distribution = self.get_class_distribution(
             num_classes=n_classes,
@@ -80,9 +80,12 @@ class DataPartitioner:
 
     @staticmethod
     def get_class_distribution(
-        num_classes: int, p: float, overrepresented_classes: int = 3
+            num_classes: int, p: float, overrepresented_classes: int = 3
     ) -> FP32orFP64[np.ndarray, "num_cls"]:
         """With probabilities $(p/k)$ and $(1-p)/(T-k)$ sample $k$ frequent and $T-k$ rare classes respectively."""
+        if overrepresented_classes == num_classes:
+            distribution = np.ones(num_classes) / num_classes
+            return distribution
         distribution = np.zeros(num_classes)
         p_k = p / overrepresented_classes
         q_k = (1 - p) / (num_classes - overrepresented_classes)
@@ -115,7 +118,7 @@ class DataPartitioner:
         return hist
 
     def sample_instances(
-        self,
+            self,
     ) -> Tuple[
         Dict[int, FP32orFP64[np.ndarray, "_"]], FP32orFP64[np.ndarray, "num_cls"]
     ]:
@@ -131,7 +134,7 @@ class DataPartitioner:
     @jaxtyped
     @typechecker
     def partitioning(
-        self,
+            self,
     ) -> Tuple[UInt8orFP32[Array, "n_prime h w c"], Float32[Array, "n_prime num_cls"]]:
         """Get a subset with <n_samples> of the full training data, following a long tail class distribution."""
         sampled_instances, _ = self.sample_instances()

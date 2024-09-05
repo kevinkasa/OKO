@@ -5,6 +5,7 @@ import argparse
 import itertools
 import math
 import os
+import pdb
 import random
 import warnings
 from collections import Counter, defaultdict
@@ -240,8 +241,8 @@ def get_combination(
         )
     )
     # NOTE: for SLURM use "SLURM_ARRAY_TASK_ID"
-    return combs[int(os.environ["SLURM_ARRAY_TASK_ID"])]
-
+    # return combs[int(os.environ["SLURM_ARRAY_TASK_ID"])]
+    return combs[0]
 
 def make_log_dir(
     root: str,
@@ -384,7 +385,7 @@ def batch_inference(
     X_test: Array,
     y_test: Array,
     batch_size: int,
-) -> Tuple[float, Dict[int, float]]:
+) :
     losses = []
     predictions = []
     cls_hits = defaultdict(list)
@@ -411,7 +412,7 @@ def inference(
     dir_config: FrozenDict,
     batch_size: int = None,
     collect_reps: bool = False,
-) -> None:
+):
     X_test = jax.device_put(X_test, device=gpu_devices[0])
     y_test = jax.device_put(y_test, device=gpu_devices[0])
     if collect_reps:
@@ -780,6 +781,7 @@ if __name__ == "__main__":
         steps=args.steps,
         rnd_seed=rnd_seed,
     )
+    print('TRAINING FINISHED, STARTING INFERENCE')
     logits, train_labels = inference(
         out_path=args.out_path,
         epoch=epoch,
