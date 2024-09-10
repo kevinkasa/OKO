@@ -40,7 +40,6 @@ os.environ["PYTHONIOENCODING"] = "UTF-8"
 os.environ["JAX_PLATFORM_NAME"] = "gpu"
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
-
 # NOTE: start out allocating very little memory,
 # and as the program gets run and more GPU memory is needed,
 # the GPU memory region is extended for the TensorFlow process.
@@ -210,16 +209,16 @@ def parseargs():
 
 
 def get_combination(
-    samples: List[int],
-    epochs: List[int],
-    oko_batch_sizes: List[int],
-    main_batch_sizes: List[int],
-    learning_rates: List[float],
-    num_sets: List[int],
-    probability_masses: List[float],
-    num_odds: List[int],
-    sampling_policies: List[str],
-    seeds: List[int],
+        samples: List[int],
+        epochs: List[int],
+        oko_batch_sizes: List[int],
+        main_batch_sizes: List[int],
+        learning_rates: List[float],
+        num_sets: List[int],
+        probability_masses: List[float],
+        num_odds: List[int],
+        sampling_policies: List[str],
+        seeds: List[int],
 ):
     combs = []
     combs.extend(
@@ -244,11 +243,12 @@ def get_combination(
     # return combs[int(os.environ["SLURM_ARRAY_TASK_ID"])]
     return combs[0]
 
+
 def make_log_dir(
-    root: str,
-    model_config: FrozenDict,
-    data_config: FrozenDict,
-    rnd_seed: int,
+        root: str,
+        model_config: FrozenDict,
+        data_config: FrozenDict,
+        rnd_seed: int,
 ) -> str:
     path = os.path.join(
         root,
@@ -265,10 +265,10 @@ def make_log_dir(
 
 
 def make_calibration_dir(
-    root: str,
-    model_config: FrozenDict,
-    data_config: FrozenDict,
-    rnd_seed: int,
+        root: str,
+        model_config: FrozenDict,
+        data_config: FrozenDict,
+        rnd_seed: int,
 ) -> str:
     path = os.path.join(
         root,
@@ -284,10 +284,10 @@ def make_calibration_dir(
 
 
 def create_dirs(
-    results_root: str,
-    data_config: FrozenDict,
-    model_config: FrozenDict,
-    rnd_seed: int,
+        results_root: str,
+        data_config: FrozenDict,
+        model_config: FrozenDict,
+        rnd_seed: int,
 ):
     """Create directories for saving and loading model checkpoints."""
     dir_config = config_dict.ConfigDict()
@@ -304,7 +304,7 @@ def create_dirs(
 @jaxtyped
 @typechecker
 def get_splits(
-    dataset: str,
+        dataset: str,
 ) -> Tuple[
     Tuple[UInt8orFP32[Array, "n_train h w c"], Float32[Array, "n_train num_cls"]],
     Tuple[UInt8orFP32[Array, "n_val h w c"], Float32[Array, "n_val num_cls"]],
@@ -319,14 +319,14 @@ def get_splits(
 @jaxtyped
 @typechecker
 def get_fs_subset(
-    train_set: Tuple[
-        UInt8orFP32[Array, "n_train h w c"], Float32[Array, "n_train num_cls"]
-    ],
-    n_samples: int,
-    min_samples: int,
-    p_mass: float,
-    overrepresented_classes: int,
-    rnd_seed: int,
+        train_set: Tuple[
+            UInt8orFP32[Array, "n_train h w c"], Float32[Array, "n_train num_cls"]
+        ],
+        n_samples: int,
+        min_samples: int,
+        p_mass: float,
+        overrepresented_classes: int,
+        rnd_seed: int,
 ) -> Tuple[UInt8orFP32[Array, "n_prime h w c"], Float32[Array, "n_prime num_cls"]]:
     """Get a subset with <n_samples> data points of the full training data, following a long tail class distribution."""
     data_partitioner = DataPartitioner(
@@ -343,15 +343,15 @@ def get_fs_subset(
 
 
 def run(
-    model,
-    model_config: FrozenDict,
-    data_config: FrozenDict,
-    optimizer_config: FrozenDict,
-    dir_config: FrozenDict,
-    train_set: Tuple[Array, Array],
-    val_set: Tuple[Array, Array],
-    steps: int,
-    rnd_seed: int,
+        model,
+        model_config: FrozenDict,
+        data_config: FrozenDict,
+        optimizer_config: FrozenDict,
+        dir_config: FrozenDict,
+        train_set: Tuple[Array, Array],
+        val_set: Tuple[Array, Array],
+        steps: int,
+        rnd_seed: int,
 ) -> tuple:
     trainer = OKOTrainer(
         model=model,
@@ -362,36 +362,49 @@ def run(
         steps=steps,
         rnd_seed=rnd_seed,
     )
-    train_batches = OKOLoader(
-        data=train_set,
-        data_config=data_config,
-        model_config=model_config,
-        seed=rnd_seed,
-        train=True,
-    )
-    val_batches = OKOLoader(
-        data=val_set,
-        data_config=data_config,
-        model_config=model_config,
-        seed=rnd_seed,
-        train=False,
-    )
+
+    # def data_generator(data):
+    #     num_samples = data[0].shape[0]
+    #     indices = np.arange(num_samples)
+    #     np.random.shuffle(indices)
+    #     for i in range(0, num_samples, 128):
+    #         batch_indices = indices[i:i+128]
+    #         yield data[0][batch_indices], data[1][batch_indices]
+
+    train_batches = utils.create_tf_dataset(train_set, batch_size=128, shuffle=True)
+    val_batches = utils.create_tf_dataset(val_set, batch_size=128, shuffle=False)
+    # train_batches = OKOLoader(
+    #     data=train_set,
+    #     data_config=data_config,
+    #     model_config=model_config,
+    #     seed=rnd_seed,
+    #     train=True,
+    # )
+    #
+    # val_batches = OKOLoader(
+    #     data=val_set,
+    #     data_config=data_config,
+    #     model_config=model_config,
+    #     seed=rnd_seed,
+    #     train=False,
+    # )
+
     metrics, epoch = trainer.train(train_batches, val_batches)
     return trainer, metrics, epoch
 
 
 def batch_inference(
-    trainer: object,
-    X_test: Array,
-    y_test: Array,
-    batch_size: int,
-) :
+        trainer: object,
+        X_test: Array,
+        y_test: Array,
+        batch_size: int,
+):
     losses = []
     predictions = []
     cls_hits = defaultdict(list)
     for i in range(math.ceil(X_test.shape[0] / batch_size)):
-        X_i = X_test[i * batch_size : (i + 1) * batch_size]
-        y_i = y_test[i * batch_size : (i + 1) * batch_size]
+        X_i = X_test[i * batch_size: (i + 1) * batch_size]
+        y_i = y_test[i * batch_size: (i + 1) * batch_size]
         loss, cls_hits, logits = trainer.eval_step(X_i, y_i, cls_hits=cls_hits)
         losses.append(loss)
         predictions.append(logits)
@@ -401,17 +414,17 @@ def batch_inference(
 
 
 def inference(
-    out_path: str,
-    epoch: int,
-    trainer: OKOTrainer,
-    X_test: Float32[Array, "n_test h w c"],
-    y_test: Float32[Array, "n_test num_cls"],
-    train_labels: Float32[Array, "n_prime num_cls"],
-    model_config: FrozenDict,
-    data_config: FrozenDict,
-    dir_config: FrozenDict,
-    batch_size: int = None,
-    collect_reps: bool = False,
+        out_path: str,
+        epoch: int,
+        trainer: OKOTrainer,
+        X_test: Float32[Array, "n_test h w c"],
+        y_test: Float32[Array, "n_test num_cls"],
+        train_labels: Float32[Array, "n_prime num_cls"],
+        model_config: FrozenDict,
+        data_config: FrozenDict,
+        dir_config: FrozenDict,
+        batch_size: int = None,
+        collect_reps: bool = False,
 ):
     X_test = jax.device_put(X_test, device=gpu_devices[0])
     y_test = jax.device_put(y_test, device=gpu_devices[0])
@@ -499,7 +512,7 @@ def sort_cls_distribution(cls_distribution: Dict[int, int]) -> Dict[int, int]:
 
 
 def get_cls_subset_performance(
-    cls_accuracies: Dict[int, float], cls_subset: List[int]
+        cls_accuracies: Dict[int, float], cls_subset: List[int]
 ) -> Tuple[float]:
     _, cls_subset_performances = zip(
         *list(filter(lambda x: x[0] in cls_subset, cls_accuracies))
@@ -508,7 +521,7 @@ def get_cls_subset_performance(
 
 
 def get_cls_subset_performances(
-    cls_distribution: Dict[int, int], cls_accuracies: Dict[int, float], k: int = 3
+        cls_distribution: Dict[int, int], cls_accuracies: Dict[int, float], k: int = 3
 ) -> Tuple[Tuple[float], Tuple[float]]:
     cls_distribution = sort_cls_distribution(cls_distribution)
     classes = list(cls_distribution.keys())
@@ -522,12 +535,12 @@ def get_cls_subset_performances(
 
 
 def make_results_df(
-    columns: List[str],
-    epoch: int,
-    performance: FrozenDict,
-    cls_distribution: Dict[int, int],
-    model_config: FrozenDict,
-    data_config: FrozenDict,
+        columns: List[str],
+        epoch: int,
+        performance: FrozenDict,
+        cls_distribution: Dict[int, int],
+        model_config: FrozenDict,
+        data_config: FrozenDict,
 ) -> pd.DataFrame:
     accuracies = list(performance["accuracy"].items())
     (
@@ -574,12 +587,12 @@ def make_results_df(
 
 
 def save_results(
-    out_path: str,
-    epoch: int,
-    performance: FrozenDict,
-    cls_distribution: Dict[int, int],
-    model_config: FrozenDict,
-    data_config: FrozenDict,
+        out_path: str,
+        epoch: int,
+        performance: FrozenDict,
+        cls_distribution: Dict[int, int],
+        model_config: FrozenDict,
+        data_config: FrozenDict,
 ) -> None:
     if not os.path.exists(out_path):
         print("\nCreating results directory...\n")
@@ -723,6 +736,7 @@ if __name__ == "__main__":
     np.random.seed(rnd_seed)
 
     train_set, val_set, test_set = get_splits(args.dataset)
+
     train_set = get_fs_subset(
         train_set=train_set,
         min_samples=args.min_samples,
@@ -760,6 +774,13 @@ if __name__ == "__main__":
         )
         val_set = (val_images, val_labels)
         test_set = (test_images, test_labels)
+
+        train_images, train_labels = train_set
+        train_images = utils.normalize_images(
+            images=train_images, data_config=data_config
+        )
+        train_set = (train_images, train_labels)
+
 
     model = get_model(model_config=model_config, data_config=data_config)
 

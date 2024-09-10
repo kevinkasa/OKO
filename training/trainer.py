@@ -26,6 +26,7 @@ from jaxtyping import Array, Float32, Int32, PyTree
 # from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 
+import utils
 import training.loss_funs as loss_funs
 from training.train_state import TrainState
 
@@ -366,7 +367,10 @@ class OKOTrainer:
         cls_hits = defaultdict(list)
         batch_losses = jnp.zeros(len(batches))
         for step, batch in tqdm(enumerate(batches), desc="Batch", leave=False):
-            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+            # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+            X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
+            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
+
             if train:
                 self.state, loss, logits = self.train_step(
                     state=self.state, X=X, y=y, rng=self.rng

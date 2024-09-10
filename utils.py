@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*
 
 import os
+import math
 import pickle
 import re
 from typing import Tuple
@@ -10,6 +11,7 @@ import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import tensorflow as tf
 import tensorflow_datasets as tfds
 from flax import serialization
 from jaxtyping import AbstractDtype, Array, Float32, jaxtyped
@@ -24,6 +26,40 @@ FrozenDict = config_dict.FrozenConfigDict
 
 class UInt8orFP32(AbstractDtype):
     dtypes = ["uint8", "float32"]
+
+def convert_tf_batch_to_jax(batch):
+    """
+    Convert TensorFlow Tensors in a batch to JAX-compatible arrays.
+    """
+    images, labels = batch
+    images_np = images.numpy()  # Convert TensorFlow tensor to NumPy array
+    labels_np = labels.numpy()  # Convert TensorFlow tensor to NumPy array
+
+    images_jax = jnp.asarray(images_np)  # Convert to JAX array
+    labels_jax = jnp.asarray(labels_np)  # Convert to JAX array
+
+    return images_jax, labels_jax
+
+
+def create_tf_dataset(data: Tuple[Array, Array], batch_size: int,
+                      shuffle: bool = False) -> tf.data.Dataset:
+    """
+    Converts NumPy arrays into a TensorFlow Dataset and applies batching and optional shuffling.
+    """
+    # Create a TensorFlow dataset from NumPy arrays
+    dataset = tf.data.Dataset.from_tensor_slices((data[0], data[1]))
+
+    # Shuffle the dataset if needed (e.g., for training data)
+    if shuffle:
+        dataset = dataset.shuffle(buffer_size=10000)
+
+    # Batch the dataset
+    dataset = dataset.batch(batch_size)
+
+    # Prefetch to improve input pipeline performance
+    # dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+
+    return dataset
 
 
 def get_data(dataset: str, split: str) -> Tuple[np.ndarray, np.ndarray]:
@@ -52,7 +88,7 @@ def get_tf_split(split: str) -> str:
 
 
 def get_data_statistics(
-    dataset: str,
+        dataset: str,
 ) -> Tuple[Float32[Array, "3"], Float32[Array, "3"]]:
     """Get means and stds of CIFAR-10, CIFAR-100, or the ImageNet training data."""
     if dataset == "cifar10":
@@ -72,8 +108,8 @@ def get_data_statistics(
 @jaxtyped
 @typechecker
 def normalize_images(
-    images: UInt8orFP32[Array, "#batchk h w c"],
-    data_config: FrozenDict,
+        images: UInt8orFP32[Array, "#batchk h w c"],
+        data_config: FrozenDict,
 ) -> UInt8orFP32[Array, "#batchk h w c"]:
     images = images / data_config.max_pixel_value
     images -= data_config.means
