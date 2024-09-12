@@ -10,28 +10,31 @@
 #SBATCH --ntasks-per-node=2
 #SBATCH --output=/scratch/ssd004/scratch/kkasa/code/OKO/results/%j_0_log.out
 #SBATCH --partition=a40
-#SBATCH --time 8:00:00
+#SBATCH --time 1:30:00
 #SBATCH --qos=m2
 
-dataset='cifar10';
-out_path="/scratch/ssd004/scratch/kkasa/code/OKO/results/${dataset}";
 
-#network='ResNet18';
- network='Custom';
+seeds=( 0  ); #0,1,2,3,4,5
+
+dataset='cifar10';
+out_path="/scratch/ssd004/scratch/kkasa/code/OKO/results_20000_OKO_LT_SEEDS${seeds}/${dataset}";
+
+network='ResNet18';
+#network='Custom';
 
 n_classes=10;
 targets='hard';
-min_samples=5;
+min_samples=10;
 optim='sgd';
 burnin=35;
-patience=15;
+patience=20;
 steps=40;
 
 num_odds=( 1 );
 sampling_policies=( 'uniform' );
 probability_masses=( 0.9 );
-samples=( 2000 );
-max_epochs=( 200 );
+samples=( 3000 );
+max_epochs=( 500 );
 oko_batch_sizes=( 256 );
 main_batch_sizes=( 512 );
 
@@ -40,8 +43,7 @@ main_batch_sizes=( 512 );
 etas=( 0.01 );
 
 #num_sets=( 20000  );
-num_sets=( 5000  );
-seeds=( 42  );
+num_sets=( 20000 );
 
 source ~/.bashrc
 source ~/venvs/oko/bin/activate
@@ -57,10 +59,10 @@ export XLA_PYTHON_CLIENT_ALLOCATOR=platform
 
 echo "Started odd-k-out learning $SGE_TASK_ID for $network at $(date)"
 
-logdir="/scratch/ssd004/scratch/kkasa/code/OKO/results/logs/${dataset}/${network}/${targets}/${SGE_TASK_ID}";
+logdir="/scratch/ssd004/scratch/kkasa/code/OKO/results_20000_OKO_LT_SEEDS${seeds}/logs/${dataset}/${network}/${targets}/${SGE_TASK_ID}";
 
 mkdir -p $logdir;
 
-python main.py --out_path $out_path --overrepresented_classes 10 --network $network --dataset $dataset --samples ${samples[@]} --optim $optim --sampling ${sampling_policies[@]} --min_samples $min_samples --probability_masses ${probability_masses[@]} --n_classes $n_classes --targets $targets --k ${num_odds[@]} --num_sets ${num_sets[@]} --oko_batch_sizes ${oko_batch_sizes[@]} --main_batch_sizes ${main_batch_sizes[@]} --epochs ${max_epochs[@]} --etas ${etas[@]} --burnin $burnin --patience $patience --steps $steps --seeds ${seeds[@]} --regularization --apply_augmentations >> ${logdir}/oko_${dataset}.out
+python main.py --out_path $out_path --overrepresented_classes 3 --network $network --dataset $dataset --samples ${samples[@]} --optim $optim --sampling ${sampling_policies[@]} --min_samples $min_samples --probability_masses ${probability_masses[@]} --n_classes $n_classes --targets $targets --k ${num_odds[@]} --num_sets ${num_sets[@]} --oko_batch_sizes ${oko_batch_sizes[@]} --main_batch_sizes ${main_batch_sizes[@]} --epochs ${max_epochs[@]} --etas ${etas[@]} --burnin $burnin --patience $patience --steps $steps --seeds ${seeds[@]} --regularization  >> ${logdir}/oko_${dataset}.out
 
 printf "Finished odd-k-out learning $SGE_TASK_ID for $network at $(date)\n"

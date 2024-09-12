@@ -367,9 +367,9 @@ class OKOTrainer:
         cls_hits = defaultdict(list)
         batch_losses = jnp.zeros(len(batches))
         for step, batch in tqdm(enumerate(batches), desc="Batch", leave=False):
-            # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
-            X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
-            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
+            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+            # X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
+            # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
 
             if train:
                 self.state, loss, logits = self.train_step(

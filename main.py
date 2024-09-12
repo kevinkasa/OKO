@@ -81,6 +81,9 @@ def parseargs():
             "imagenet",
             "imagenet_lt",
             "downsampled_imagenet",
+            'i_naturalist2018',
+            'i_naturalist2019',
+            'i_naturalist2021',
         ],
     )
     aa(
@@ -310,9 +313,17 @@ def get_splits(
     Tuple[UInt8orFP32[Array, "n_val h w c"], Float32[Array, "n_val num_cls"]],
     Tuple[UInt8orFP32[Array, "n_test h w c"], Float32[Array, "n_test num_cls"]],
 ]:
-    train_set = utils.get_data(dataset, split="train")
-    val_set = utils.get_data(dataset, split="val")
-    test_set = utils.get_data(dataset, split="test")
+    if dataset != 'i_naturalist2019':
+        train_set = utils.get_data(dataset, split="train")
+        val_set = utils.get_data(dataset, split="val")
+        test_set = utils.get_data(dataset, split="test")
+    else:
+
+        # Load training, validation, or test dataset as tf.data.Dataset
+        train_set = utils.get_inat_data('inat2019', "train")
+        val_set = utils.get_inat_data('inat2019', "val")
+        test_set = utils.get_inat_data('inat2019', "test")
+
     return (train_set, val_set, test_set)
 
 
@@ -363,31 +374,23 @@ def run(
         rnd_seed=rnd_seed,
     )
 
-    # def data_generator(data):
-    #     num_samples = data[0].shape[0]
-    #     indices = np.arange(num_samples)
-    #     np.random.shuffle(indices)
-    #     for i in range(0, num_samples, 128):
-    #         batch_indices = indices[i:i+128]
-    #         yield data[0][batch_indices], data[1][batch_indices]
+    # train_batches = utils.create_tf_dataset(train_set, batch_size=128, shuffle=True)
+    # val_batches = utils.create_tf_dataset(val_set, batch_size=128, shuffle=False)
+    train_batches = OKOLoader(
+        data=train_set,
+        data_config=data_config,
+        model_config=model_config,
+        seed=rnd_seed,
+        train=True,
+    )
 
-    train_batches = utils.create_tf_dataset(train_set, batch_size=128, shuffle=True)
-    val_batches = utils.create_tf_dataset(val_set, batch_size=128, shuffle=False)
-    # train_batches = OKOLoader(
-    #     data=train_set,
-    #     data_config=data_config,
-    #     model_config=model_config,
-    #     seed=rnd_seed,
-    #     train=True,
-    # )
-    #
-    # val_batches = OKOLoader(
-    #     data=val_set,
-    #     data_config=data_config,
-    #     model_config=model_config,
-    #     seed=rnd_seed,
-    #     train=False,
-    # )
+    val_batches = OKOLoader(
+        data=val_set,
+        data_config=data_config,
+        model_config=model_config,
+        seed=rnd_seed,
+        train=False,
+    )
 
     metrics, epoch = trainer.train(train_batches, val_batches)
     return trainer, metrics, epoch
@@ -775,12 +778,11 @@ if __name__ == "__main__":
         val_set = (val_images, val_labels)
         test_set = (test_images, test_labels)
 
-        train_images, train_labels = train_set
-        train_images = utils.normalize_images(
-            images=train_images, data_config=data_config
-        )
-        train_set = (train_images, train_labels)
-
+        # train_images, train_labels = train_set
+        # train_images = utils.normalize_images(
+        #     images=train_images, data_config=data_config
+        # )
+        # train_set = (train_images, train_labels)
 
     model = get_model(model_config=model_config, data_config=data_config)
 
