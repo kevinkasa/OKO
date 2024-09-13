@@ -7,6 +7,7 @@ import math
 import os
 import pdb
 import random
+import pdb
 import warnings
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Tuple
@@ -308,21 +309,18 @@ def create_dirs(
 @typechecker
 def get_splits(
         dataset: str,
-) -> Tuple[
-    Tuple[UInt8orFP32[Array, "n_train h w c"], Float32[Array, "n_train num_cls"]],
-    Tuple[UInt8orFP32[Array, "n_val h w c"], Float32[Array, "n_val num_cls"]],
-    Tuple[UInt8orFP32[Array, "n_test h w c"], Float32[Array, "n_test num_cls"]],
-]:
+):
     if dataset != 'i_naturalist2019':
         train_set = utils.get_data(dataset, split="train")
         val_set = utils.get_data(dataset, split="val")
         test_set = utils.get_data(dataset, split="test")
     else:
+        data_dir = r'/h/kkasa/datasets/inat_comp/2019/'
 
         # Load training, validation, or test dataset as tf.data.Dataset
-        train_set = utils.get_inat_data('inat2019', "train")
-        val_set = utils.get_inat_data('inat2019', "val")
-        test_set = utils.get_inat_data('inat2019', "test")
+        train_set = utils.get_inat_data(data_dir, "train",)
+        val_set = utils.get_inat_data(data_dir, "val",) # TODO: Split val set?
+        test_set = utils.get_inat_data(data_dir, "val",)
 
     return (train_set, val_set, test_set)
 
@@ -376,23 +374,23 @@ def run(
 
     # train_batches = utils.create_tf_dataset(train_set, batch_size=128, shuffle=True)
     # val_batches = utils.create_tf_dataset(val_set, batch_size=128, shuffle=False)
-    train_batches = OKOLoader(
-        data=train_set,
-        data_config=data_config,
-        model_config=model_config,
-        seed=rnd_seed,
-        train=True,
-    )
+    # train_batches = OKOLoader(
+    #     data=train_set,
+    #     data_config=data_config,
+    #     model_config=model_config,
+    #     seed=rnd_seed,
+    #     train=True,
+    # )
+    #
+    # val_batches = OKOLoader(
+    #     data=val_set,
+    #     data_config=data_config,
+    #     model_config=model_config,
+    #     seed=rnd_seed,
+    #     train=False,
+    # )
 
-    val_batches = OKOLoader(
-        data=val_set,
-        data_config=data_config,
-        model_config=model_config,
-        seed=rnd_seed,
-        train=False,
-    )
-
-    metrics, epoch = trainer.train(train_batches, val_batches)
+    metrics, epoch = trainer.train(train_set, val_set)
     return trainer, metrics, epoch
 
 
@@ -740,17 +738,18 @@ if __name__ == "__main__":
 
     train_set, val_set, test_set = get_splits(args.dataset)
 
-    train_set = get_fs_subset(
-        train_set=train_set,
-        min_samples=args.min_samples,
-        p_mass=p_mass,
-        n_samples=n_samples,
-        overrepresented_classes=args.overrepresented_classes,
-        rnd_seed=rnd_seed,
-    )
+    # TODO: For iNat we do not want to do any subsampling
+    # train_set = get_fs_subset(
+    #     train_set=train_set,
+    #     min_samples=args.min_samples,
+    #     p_mass=p_mass,
+    #     n_samples=n_samples,
+    #     overrepresented_classes=args.overrepresented_classes,
+    #     rnd_seed=rnd_seed,
+    # )
 
-    input_dim = train_set[0].shape[1:]
-    num_classes = train_set[1].shape[-1]
+    input_dim = (224,224,3)
+    num_classes = args.n_classes
 
     data_config, model_config, optimizer_config = get_configs(
         args,
@@ -766,7 +765,7 @@ if __name__ == "__main__":
         sampling=sampling,
     )
 
-    if args.dataset in utils.RGB_DATASETS:
+    if args.dataset in utils.RGB_DATASETS: # TODO: Inat not here, make more explicit
         val_images, val_labels = val_set
         test_images, test_labels = test_set
         val_images = utils.normalize_images(
@@ -778,11 +777,11 @@ if __name__ == "__main__":
         val_set = (val_images, val_labels)
         test_set = (test_images, test_labels)
 
-        # train_images, train_labels = train_set
-        # train_images = utils.normalize_images(
-        #     images=train_images, data_config=data_config
-        # )
-        # train_set = (train_images, train_labels)
+        train_images, train_labels = train_set
+        train_images = utils.normalize_images(
+            images=train_images, data_config=data_config
+        )
+        train_set = (train_images, train_labels)
 
     model = get_model(model_config=model_config, data_config=data_config)
 

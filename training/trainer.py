@@ -283,7 +283,7 @@ class OKOTrainer:
             self.init_batch_stats = None
         self.state = None
 
-    def init_optim(self, num_batches: int) -> None:
+    def init_optim(self,) -> None:
         """Initialize optimizer and training state."""
         optimizer = self.optimaker.get_optim()
         # initialize training state
@@ -312,20 +312,15 @@ class OKOTrainer:
         return state, loss, logits
 
     def eval_step(
-        self,
-        X: Float32[Array, "#batchk h w c"],
-        y: Float32[Array, "#batch num_cls"],
-        cls_hits: Dict[int, int],
+            self,
+            X: Float32[Array, "#batchk h w c"],
+            y: Float32[Array, "#batch num_cls"],
     ) -> Tuple[
-        Float32[Array, ""], Dict[int, List[int]], Float32[Array, "#batch num_cls"]
+        Float32[Array, ""], Float32[Array, "#batch num_cls"]
     ]:
         logits = self.inference(self.state, X, self.backbone, self.rng)
         loss = optax.softmax_cross_entropy(logits, y).mean()
-        batch_hits = loss_funs.class_hits(
-            logits=logits, targets=y, target_type=self.data_config.targets
-        )
-        acc = self.collect_hits(cls_hits=cls_hits, batch_hits=batch_hits)
-        return loss.item(), acc, logits
+        return loss.item(), logits
 
     @partial(jax.jit, static_argnames=["backbone"])
     def inference(
@@ -364,36 +359,42 @@ class OKOTrainer:
 
     def train_epoch(self, batches: Iterator, train: bool) -> Tuple[float, float]:
         """Take a step over each mini-batch in the (train or val) generator."""
-        cls_hits = defaultdict(list)
-        batch_losses = jnp.zeros(len(batches))
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
         for step, batch in tqdm(enumerate(batches), desc="Batch", leave=False):
-            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+            # import pdb;pdb.set_trace()
             # X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
-
+            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+            # X,y = batch
             if train:
                 self.state, loss, logits = self.train_step(
                     state=self.state, X=X, y=y, rng=self.rng
                 )
-                cls_hits = self.compute_accuracy(y=y, logits=logits, cls_hits=cls_hits)
             else:
-                loss, cls_hits, _ = self.eval_step(
+                loss, logits = self.eval_step(
                     X=X,
                     y=y,
-                    cls_hits=cls_hits,
                 )
-            del X
-            del y
-            batch_losses = batch_losses.at[step].set(loss)
-        cls_accs = {cls: np.mean(hits) for cls, hits in cls_hits.items()}
-        avg_batch_acc = np.mean(list(cls_accs.values()))
-        avg_batch_loss = jnp.mean(batch_losses)
-        return (avg_batch_loss, avg_batch_acc)
+            total_loss += loss
+
+            # Compute accuracy
+            preds = jnp.argmax(logits, axis=-1)
+            labels = jnp.argmax(y, axis=-1)
+            correct = (preds == labels).sum()
+            total_correct += correct
+            total_samples += len(labels)
+            del X, y, logits, preds, labels
+
+        avg_loss = total_loss / total_samples
+        avg_acc = total_correct / total_samples
+        return avg_loss, avg_acc
 
     def train(
         self, train_batches: Iterator, val_batches: Iterator
     ) -> Tuple[Dict[str, Tuple[float]], int]:
-        self.init_optim(num_batches=len(train_batches))
+        self.init_optim()
         for epoch in tqdm(range(1, self.optimizer_config.epochs + 1), desc="Epoch"):
             train_performance = self.train_epoch(batches=train_batches, train=True)
             self.train_metrics.append(train_performance)
@@ -420,6 +421,7 @@ class OKOTrainer:
                 # self.logger.flush()
                 # NOTE: periodically call "jax.clear_backends()" to clear cache
                 # This seems to prevent OOMs and / or memory leaks
+                jax.clear_caches()
                 jax.clear_backends()
 
             if epoch % self.steps == 0:
