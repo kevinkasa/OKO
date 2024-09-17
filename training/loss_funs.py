@@ -34,46 +34,46 @@ class KL_Div:
 
     @staticmethod
     def cross_entropy(
-        targets: Float32[Array, "#batch num_cls"],
-        log_probs: Float32[Array, "#batch num_cls"],
+            targets: Float32[Array, "#batch num_cls"],
+            log_probs: Float32[Array, "#batch num_cls"],
     ) -> Float32[Array, "#batch"]:
         return jnp.sum(targets * log_probs, axis=-1)
 
     @jax.jit
     def standard_kld(
-        self,
-        targets: Float32[Array, "#batch num_cls"],
-        log_probs: Float32[Array, "#batch num_cls"],
+            self,
+            targets: Float32[Array, "#batch num_cls"],
+            log_probs: Float32[Array, "#batch num_cls"],
     ) -> Float32[Array, "#batch"]:
         return self.entropy(targets) - self.cross_entropy(targets, log_probs)
 
     @jax.jit
     def convex_kld(
-        self,
-        targets: Float32[Array, "#batch num_cls"],
-        log_probs: Float32[Array, "#batch num_cls"],
+            self,
+            targets: Float32[Array, "#batch num_cls"],
+            log_probs: Float32[Array, "#batch num_cls"],
     ) -> Float32[Array, "#batch"]:
         return (
-            self.entropy(targets)
-            - self.cross_entropy(targets, log_probs)
-            - targets
-            + jnp.exp(log_probs)
+                self.entropy(targets)
+                - self.cross_entropy(targets, log_probs)
+                - targets
+                + jnp.exp(log_probs)
         )
 
     def kl_divergence(self) -> Callable:
         return getattr(self, f"{self.type}_kld")
 
     def __call__(
-        self,
-        targets: Float32[Array, "#batch num_cls"],
-        log_probs: Float32[Array, "#batch num_cls"],
+            self,
+            targets: Float32[Array, "#batch num_cls"],
+            log_probs: Float32[Array, "#batch num_cls"],
     ) -> Float32[Array, "#batch"]:
         return self.kl_divergence()(targets, log_probs)
 
 
 @jax.jit
 def accuracy(
-    logits: Float32[Array, "#batch num_cls"], targets: Float32[Array, "#batch num_cls"]
+        logits: Float32[Array, "#batch num_cls"], targets: Float32[Array, "#batch num_cls"]
 ) -> Float32[Array, ""]:
     return jnp.mean(
         logits.argmax(axis=1) == jnp.nonzero(targets, size=targets.shape[0])[-1]
@@ -82,8 +82,8 @@ def accuracy(
 
 @jax.jit
 def kl_divergence(
-    targets: Float32[Array, "#batch num_cls"],
-    log_probs: Float32[Array, "#batch num_cls"],
+        targets: Float32[Array, "#batch num_cls"],
+        log_probs: Float32[Array, "#batch num_cls"],
 ) -> Float32[Array, "#batch"]:
     kld = targets * (jnp.where(targets == 0, 0, jnp.log(targets)) - log_probs)
     kld = kld - targets + jnp.exp(log_probs)
@@ -91,9 +91,9 @@ def kl_divergence(
 
 
 def class_hits(
-    logits: Float32[Array, "#batch num_cls"],
-    targets: Float32[Array, "#batch num_cls"],
-    target_type: str,
+        logits: Float32[Array, "#batch num_cls"],
+        targets: Float32[Array, "#batch num_cls"],
+        target_type: str,
 ) -> Dict[int, List[int]]:
     """Compute the per-class accuracy for imbalanced datasets."""
     if isinstance(logits, tuple):
@@ -113,30 +113,30 @@ def class_hits(
 
 @partial(jax.jit, static_argnames=["lmbda"])
 def l2_reg(
-    params: PyTree[Float32[Array, "..."]], lmbda: float = 1e-3
+        params: PyTree[Float32[Array, "..."]], lmbda: float = 1e-3
 ) -> Float32[Array, ""]:
     """l2 weight regularization during (triplet) pretraining."""
     # NOTE: sum(x ** 2) = ||x||_{2}^{2}
     weight_penalty_params = jax.tree_util.tree_leaves(params)
-    weight_l2 = sum(jnp.sum(x**2) for x in weight_penalty_params if x.ndim > 1)
+    weight_l2 = sum(jnp.sum(x ** 2) for x in weight_penalty_params if x.ndim > 1)
     weight_penalty = lmbda * 0.5 * weight_l2
     return weight_penalty
 
 
 def custom_predict(
-    state: PyTree,
-    params: PyTree[Float32[Array, "..."]],
-    X: Float32[Array, "#batchk h w c"],
-    train: bool = True,
+        state: PyTree,
+        params: PyTree[Float32[Array, "..."]],
+        X: Float32[Array, "#batchk h w c"],
+        train: bool = True,
 ) -> Array:
     return state.apply_fn({"params": params}, X, train=train)
 
 
 def resnet_predict(
-    state: PyTree,
-    params: PyTree[Float32[Array, "..."]],
-    X: Float32[Array, "#batchk h w c"],
-    train: bool,
+        state: PyTree,
+        params: PyTree[Float32[Array, "..."]],
+        X: Float32[Array, "#batchk h w c"],
+        train: bool,
 ) -> Union[Tuple[Array, PyTree], Array]:
     return state.apply_fn(
         {"params": params, "batch_stats": state.batch_stats},
@@ -146,12 +146,13 @@ def resnet_predict(
     )
 
 
+@partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
 def vit_predict(
-    state: PyTree,
-    params: PyTree[Float32[Array, "..."]],
-    X: Float32[Array, "#batchk h w c"],
-    rng: Array,
-    train: bool,
+        state: PyTree,
+        params: PyTree[Float32[Array, "..."]],
+        X: Float32[Array, "#batchk h w c"],
+        rng: Array,
+        train: bool,
 ) -> Tuple[Array, Array]:
     rng, dropout_apply_rng = random.split(rng)
     logits = state.apply_fn(
@@ -163,12 +164,13 @@ def vit_predict(
     return logits, rng
 
 
+# @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
 def loss_fn_custom(
-    state: PyTree,
-    params: PyTree[Float32[Array, "..."]],
-    X: Float32[Array, "#batchk h w c"],
-    y: Float32[Array, "#batch num_cls"],
-    target_type: str,
+        state: PyTree,
+        params: PyTree[Float32[Array, "..."]],
+        X: Float32[Array, "#batchk h w c"],
+        y: Float32[Array, "#batch num_cls"],
+        target_type: str,
 ) -> Tuple[Array, Tuple[Array]]:
     logits = custom_predict(state, params, X)
     """
@@ -188,13 +190,14 @@ def loss_fn_custom(
     return loss, logits
 
 
+# @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
 def loss_fn_resnet(
-    state: PyTree,
-    params: PyTree[Float32[Array, "..."]],
-    X: Float32[Array, "#batchk h w c"],
-    y: Float32[Array, "#batch num_cls"],
-    target_type: str,
-    train: bool = True,
+        state: PyTree,
+        params: PyTree[Float32[Array, "..."]],
+        X: Float32[Array, "#batchk h w c"],
+        y: Float32[Array, "#batch num_cls"],
+        target_type: str,
+        train: bool = True,
 ) -> Tuple[Array, Tuple[Array]]:
     logits, new_state = resnet_predict(state, params, X, train)
     """
@@ -216,13 +219,13 @@ def loss_fn_resnet(
 
 
 def loss_fn_vit(
-    state: PyTree,
-    params: PyTree[Float32[Array, "..."]],
-    X: Float32[Array, "#batchk h w c"],
-    y: Float32[Array, "#batch num_cls"],
-    target_type: str,
-    rng=None,
-    train: bool = True,
+        state: PyTree,
+        params: PyTree[Float32[Array, "..."]],
+        X: Float32[Array, "#batchk h w c"],
+        y: Float32[Array, "#batch num_cls"],
+        target_type: str,
+        rng=None,
+        train: bool = True,
 ) -> Tuple[Array, Tuple[Array]]:
     logits, rng = vit_predict(state, params, X, rng, train)
     if target_type.startswith("soft"):

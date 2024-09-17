@@ -1,192 +1,127 @@
 import os
 import json
-import numpy as np
-from PIL import Image
-from typing import Callable, Iterator, List, Tuple, Optional
-import jax
-import jax.numpy as jnp
-from functools import partial
-from tqdm import tqdm
+from torchvision.datasets.folder import ImageFolder, default_loader
+import tensorflow as tf
+
+# class INatDataset(ImageFolder):
+#     def __init__(self, root, split='train', year=2018, transform=None, target_transform=None, category='name',
+#                  loader=default_loader):
+#         super().__init__(root, transform, target_transform, loader)
+#         self.transform = transform
+#         self.loader = loader
+#         self.target_transform = target_transform
+#         self.year = year
+#         # assert category in ['kingdom','phylum','class','order','supercategory','family','genus','name']
+#         path_json = os.path.join(root, f'{split}{year}.json')
+#         with open(path_json) as json_file:
+#             data = json.load(json_file)
+#
+#         with open(os.path.join(root, 'categories.json')) as json_file:
+#             data_catg = json.load(json_file)
+#
+#         path_json_for_targeter = os.path.join(root, f"train{year}.json")
+#
+#         with open(path_json_for_targeter) as json_file:
+#             data_for_targeter = json.load(json_file)
+#
+#         targeter = {}
+#         indexer = 0
+#         for elem in data_for_targeter['annotations']:
+#             king = []
+#             king.append(data_catg[int(elem['category_id'])][category])
+#             if king[0] not in targeter.keys():
+#                 targeter[king[0]] = indexer
+#                 indexer += 1
+#         self.nb_classes = len(targeter)
+#
+#         self.samples = []
+#         for elem in data['images']:
+#             cut = elem['file_name'].split('/')
+#             target_current = int(cut[2])
+#             path_current = os.path.join(root, cut[0], cut[1], cut[2], cut[3])
+#
+#             categors = data_catg[target_current]
+#             target_current_true = targeter[categors[category]]
+#             self.samples.append((path_current, target_current_true))
+#             # import pdb;pdb.set_trace()
+#     # __getitem__ and __len__ inherited from ImageFolder
 
 
-from concurrent.futures import ThreadPoolExecutor
-import cv2  # Use OpenCV for faster image loading and processing
+from tensorflow.keras.preprocessing import image
 
 
-class INaturalist2019Dataset:
-    def __init__(
-            self,
-            data_dir: str,
-            split: str = "train",
-            batch_size: int = 32,
-            shuffle: bool = True,
-            augmentations: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-            normalization: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-            num_workers: int = 6,
-    ):
-        """
-        Initializes the iNaturalist2019 dataset.
-
-        Args:
-            data_dir (str): Path to the dataset directory.
-            split (str): Dataset split to use ('train', 'val', or 'test').
-            batch_size (int): Number of samples per batch.
-            shuffle (bool): Whether to shuffle the data.
-            augmentations (Callable, optional): Function to apply augmentations to images.
-            normalization (Callable, optional): Function to normalize images.
-            num_workers (int): Number of worker threads to use for data loading.
-        """
-        self.data_dir = data_dir
+class INatDataset:
+    def __init__(self, root, split='train', year=2018, category='name'):
+        self.root = root
         self.split = split
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.augmentations = augmentations
+        self.year = year
+        self.category = category
 
-        if normalization is None:
-            self.normalization = self.default_normalization
-        else:
-            self.normalization = normalization
+        path_json = os.path.join(root, f'{split}{year}.json')
+        with open(path_json) as json_file:
+            self.data = json.load(json_file)
 
-        self.categories = self._load_categories()
-        self.category_id_to_label = {
-            cat["id"]: idx for idx, cat in enumerate(self.categories)
-        }
-        self.image_paths, self.labels = self._load_annotations()
-        self.num_samples = len(self.image_paths)
-        self.num_classes = len(self.categories)
-        self.indices = np.arange(self.num_samples)
-        self.num_workers = num_workers
+        with open(os.path.join(root, 'categories.json')) as json_file:
+            self.data_catg = json.load(json_file)
 
-    def _load_categories(self) -> List[dict]:
-        """
-        Loads category information from categories.json.
+        path_json_for_targeter = os.path.join(root, f"train{year}.json")
+        with open(path_json_for_targeter) as json_file:
+            data_for_targeter = json.load(json_file)
 
-        Returns:
-            List[dict]: List of category dictionaries.
-        """
-        categories_file = os.path.join(self.data_dir, "categories.json")
-        with open(categories_file, "r") as f:
-            categories = json.load(f)
-        return categories
+        self.targeter = {}
+        indexer = 0
+        for elem in data_for_targeter['annotations']:
+            king = self.data_catg[int(elem['category_id'])][category]
+            if king not in self.targeter.keys():
+                self.targeter[king] = indexer
+                indexer += 1
 
-    def _load_annotations(self) -> Tuple[List[str], List[int]]:
-        """
-        Loads annotations and constructs image paths and labels.
+        self.nb_classes = len(self.targeter)
 
-        Returns:
-            Tuple[List[str], List[int]]: Lists of image paths and corresponding labels.
-        """
-        annotations_file = os.path.join(self.data_dir, f"{self.split}2019.json")
-        with open(annotations_file, "r") as f:
-            annotations = json.load(f)
+        self.samples = []
+        for elem in self.data['images']:
+            cut = elem['file_name'].split('/')
+            target_current = int(cut[2])
+            path_current = os.path.join(root, cut[0], cut[1], cut[2], cut[3])
+            categors = self.data_catg[target_current]
+            target_current_true = self.targeter[categors[category]]
+            self.samples.append((path_current, target_current_true))
 
-        images = annotations["images"]
-        annotations_list = annotations["annotations"]
+    def get_dataset(self):
+        paths, labels = zip(*self.samples)
+        dataset = tf.data.Dataset.from_tensor_slices((list(paths), list(labels)))
+        return dataset
 
-        # Map image IDs to file names
-        image_id_to_filename = {img["id"]: img["file_name"] for img in images}
 
-        image_paths = []
-        labels = []
+@tf.function
+def load_and_preprocess_image(path, label):
+    img = tf.io.read_file(path)
+    img = tf.image.decode_jpeg(img, channels=3)
+    img = tf.image.resize(img, [224, 224])
+    img = tf.cast(img, tf.float32) / 255.0
+    return img, label
 
-        for ann in annotations_list:
-            image_id = ann["image_id"]
-            category_id = ann["category_id"]
-            label = self.category_id_to_label[category_id]
-            file_name = image_id_to_filename[image_id]
-            image_path = os.path.join(
-                self.data_dir, file_name
-            )
-            image_paths.append(image_path)
-            labels.append(label)
 
-        return image_paths, labels
+@tf.function
+def normalize_image(image, label):
+    mean = tf.constant([0.485, 0.456, 0.406])
+    std = tf.constant([0.229, 0.224, 0.225])
+    image = (image - mean) / std
+    return image, label
 
-    def __iter__(self):
-        return self.generator()
 
-    def generator(self) -> Iterator[Tuple[jnp.ndarray, jnp.ndarray]]:
-        """
-        Generator that yields batches of images and labels.
+def create_dataset(data_dir, split, year, category, batch_size):
+    dataset = INatDataset(data_dir, split=split, year=year, category=category)
+    ds = dataset.get_dataset()
 
-        Yields:
-            Iterator[Tuple[jnp.ndarray, jnp.ndarray]]: Batches of images and labels.
-        """
-        if self.shuffle:
-            np.random.shuffle(self.indices)
+    # Apply transformations
+    ds = ds.map(load_and_preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
+    ds = ds.map(normalize_image, num_parallel_calls=tf.data.AUTOTUNE)
 
-        for start_idx in range(0, self.num_samples, self.batch_size):
-            batch_indices = self.indices[start_idx: start_idx + self.batch_size]
-            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-                results = list(executor.map(self._load_and_process, batch_indices))
-            batch_images, batch_labels = zip(*results)
-            batch_images = np.stack(batch_images)
-            batch_labels = np.array(batch_labels)
+    if split == 'train':
+        ds = ds.shuffle(buffer_size=10000)
 
-            num_devices = jax.local_device_count()
-            batch_images = batch_images.reshape(num_devices, -1, *batch_images.shape[1:])
-            batch_labels = batch_labels.reshape(num_devices, -1, *batch_labels.shape[1:])
+    ds = ds.batch(batch_size, drop_remainder=True)
+    ds = ds.prefetch(tf.data.AUTOTUNE)
 
-            # Convert to jnp arrays
-            batch_images = jnp.array(batch_images)
-            batch_labels = self.one_hot_encode(
-                batch_labels, self.num_classes
-            )
-
-            yield batch_images, batch_labels
-
-    def _load_and_process(self, idx):
-        image_path = self.image_paths[idx]
-        label = self.labels[idx]
-        image = self._load_image(image_path)
-        if self.augmentations:
-            image = self.augmentations(image)
-        if self.normalization:
-            image = self.normalization(image)
-        return image, label
-
-    def _load_image(self, image_path: str) -> np.ndarray:
-        """
-        Loads an image from the given path using OpenCV.
-
-        Args:
-            image_path (str): Path to the image file.
-
-        Returns:
-            np.ndarray: Loaded image as a NumPy array.
-        """
-        img = cv2.imread(image_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (224, 224))
-        return img
-
-    @staticmethod
-    def one_hot_encode(labels: np.ndarray, num_classes: int) -> jnp.ndarray:
-        """
-        One-hot encodes the labels.
-
-        Args:
-            labels (np.ndarray): Array of labels.
-            num_classes (int): Number of classes.
-
-        Returns:
-            jnp.ndarray: One-hot encoded labels.
-        """
-        return jax.nn.one_hot(labels, num_classes)
-
-    @staticmethod
-    def default_normalization(image: np.ndarray) -> np.ndarray:
-        """
-        Default normalization function that scales images to [-1, 1].
-
-        Args:
-            image (np.ndarray): Image array.
-
-        Returns:
-            np.ndarray: Normalized image.
-        """
-        image = image / 255.0  # Scale to [0, 1]
-        mean = np.array([0.485, 0.456, 0.406])  # ImageNet mean
-        std = np.array([0.229, 0.224, 0.225])  # ImageNet std
-        image = (image - mean) / std
-        return image.astype(np.float16)  #
+    return ds

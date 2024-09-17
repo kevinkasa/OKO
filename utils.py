@@ -3,6 +3,7 @@
 
 import os
 import math
+import time
 import json
 import pickle
 import re
@@ -18,10 +19,10 @@ from flax import serialization
 from jaxtyping import AbstractDtype, Array, Float32, jaxtyped
 from ml_collections import config_dict
 from typeguard import typechecked as typechecker
-from PIL import Image
-from tqdm import tqdm
 
-from data.inat import INaturalist2019Dataset
+import torch
+from torchvision import transforms
+from data.inat import INatDataset, create_dataset
 
 RGB_DATASETS = ["cifar10", "cifar100", "imagenet", "imagenet_lt", ]
 MODELS = ["Custom", "ResNet18", "ResNet34", "ResNet50", "ResNet101", "ViT"]
@@ -33,15 +34,58 @@ class UInt8orFP32(AbstractDtype):
     dtypes = ["uint8", "float32"]
 
 
-def get_inat_data(data_dir: str, split: str, batch_size: int = 512):
+# def build_transform():
+#     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+#                                      std=[0.229, 0.224, 0.225])
+#     transform = transforms.Compose([
+#         transforms.Resize((224, 224)),
+#         # transforms.RandomHorizontalFlip(),
+#         transforms.ToTensor(),
+#         normalize,
+#     ])
+#
+#     return transform
+
+
+def get_inat_data(data_dir: str, split: str, batch_size: int = 128):
     num_devices = jax.local_device_count()
     print(num_devices)
-    dataset = INaturalist2019Dataset(
+    dataset = create_dataset(
         data_dir,
         split=split,
-        batch_size=batch_size * num_devices,  # ensure divisible by num GPUs
-        augmentations=None,
+        year=2019,
+        category='name',
+        batch_size=batch_size*num_devices
     )
+    # # import pdb;pdb.set_trace()
+    # for images, labels in dataset:
+    #     start_time = time.time()  # Start the timer
+    #
+    #     # Simulate some processing on the batch (optional)
+    #     # time.sleep(0.1)  # You can remove this line, it's just for simulation
+    #
+    #     end_time = time.time()  # End the timer
+    #     batch_time = end_time - start_time
+    #     # batch_times.append(batch_time)
+    #
+    #     print(f"Batch  took {batch_time} seconds to load")
+    #
+    # # batch_times = []  # List to store time for each batch
+    # # for batch_idx, (data, labels) in enumerate(data_loader):
+    # #     start_time = time.time()  # Start the timer
+    # #
+    # #     # Simulate some processing on the batch (optional)
+    # #     # time.sleep(0.1)  # You can remove this line, it's just for simulation
+    # #
+    # #     end_time = time.time()  # End the timer
+    # #     batch_time = end_time - start_time
+    # #     # batch_times.append(batch_time)
+    # #
+    # #     print(f"Batch {batch_idx + 1} took {batch_time} seconds to load")
+    # #
+    # # average_batch_time = sum(batch_times) / len(batch_times)
+    # # print(f"Average time per batch: {average_batch_time:.4f} seconds")
+    # # import pdb;pdb.set_trace()
     return dataset
 
 
@@ -59,25 +103,25 @@ def convert_batch_to_jax(batch):
     return images_jax, labels_jax
 
 
-def create_tf_dataset(data: Tuple[Array, Array], batch_size: int,
-                      shuffle: bool = False) -> tf.data.Dataset:
-    """
-    Converts NumPy arrays into a TensorFlow Dataset and applies batching and optional shuffling.
-    """
-    # Create a TensorFlow dataset from NumPy arrays
-    dataset = tf.data.Dataset.from_tensor_slices((data[0], data[1]))
-
-    # Shuffle the dataset if needed (e.g., for training data)
-    if shuffle:
-        dataset = dataset.shuffle(buffer_size=10000)
-
-    # Batch the dataset
-    dataset = dataset.batch(batch_size, drop_remainder=True)
-
-    # Prefetch to improve input pipeline performance
-    # dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
-
-    return dataset
+# def create_tf_dataset(data: Tuple[Array, Array], batch_size: int,
+#                       shuffle: bool = False) -> tf.data.Dataset:
+#     """
+#     Converts NumPy arrays into a TensorFlow Dataset and applies batching and optional shuffling.
+#     """
+#     # Create a TensorFlow dataset from NumPy arrays
+#     dataset = tf.data.Dataset.from_tensor_slices((data[0], data[1]))
+#
+#     # Shuffle the dataset if needed (e.g., for training data)
+#     if shuffle:
+#         dataset = dataset.shuffle(buffer_size=10000)
+#
+#     # Batch the dataset
+#     dataset = dataset.batch(batch_size, drop_remainder=True)
+#
+#     # Prefetch to improve input pipeline performance
+#     # dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+#
+#     return dataset
 
 
 def get_data(dataset: str, split: str) -> Tuple[np.ndarray, np.ndarray]:

@@ -31,6 +31,7 @@ import training.loss_funs as loss_funs
 # from training.train_state import TrainState
 from flax.training import train_state
 
+
 @dataclass(init=True, repr=True)
 class OptiMaker:
     epochs: int
@@ -324,6 +325,7 @@ class OKOTrainer:
             state, loss, logits = self.loss.update(state, X, y)
         return state, loss, logits
 
+    @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def eval_step(
             self,
             X: Float32[Array, "#batchk h w c"],
@@ -333,6 +335,7 @@ class OKOTrainer:
     ]:
         logits = self.inference(self.state, X, self.backbone, self.rng)
         loss = optax.softmax_cross_entropy(logits, y).mean()
+        loss = jax.lax.pmean(loss, axis_name='gpu_id')
         return loss.item(), logits
 
     @partial(jax.jit, static_argnames=["backbone"])
@@ -376,14 +379,22 @@ class OKOTrainer:
         total_correct = 0
         total_samples = 0
         for step, batch in tqdm(enumerate(batches), desc="Batch", leave=False):
-            # import pdb;pdb.set_trace()
             # X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
             X, y = batch
-            # num_devices = jax.local_device_count()
-            # X = X.reshape(num_devices, int(X.shape[0] / num_devices), *X.shape[1:])
-            # y = y.reshape(num_devices, int(y.shape[0] / num_devices), *y.shape[1:])
+
+            X = X.numpy()  # Convert TensorFlow tensor to NumPy array
+            y = y.numpy()  # Convert TensorFlow tensor to NumPy array
+
+            X = jnp.asarray(X)  # Convert to JAX array
+            y = jnp.asarray(y)  # Convert to JAX array
+            y = jax.nn.one_hot(y, 1010)  # TODO: CLI
+
+            num_devices = jax.local_device_count()
+            X = X.reshape(num_devices, int(X.shape[0] / num_devices), *X.shape[1:])
+            y = y.reshape(num_devices, int(y.shape[0] / num_devices), *y.shape[1:])
+
             # import pdb
             # import time
             # pdb.set_trace()
