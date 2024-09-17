@@ -28,8 +28,8 @@ from tqdm.auto import tqdm
 
 import utils
 import training.loss_funs as loss_funs
-from training.train_state import TrainState
-
+# from training.train_state import TrainState
+from flax.training import train_state
 
 @dataclass(init=True, repr=True)
 class OptiMaker:
@@ -100,26 +100,35 @@ class Loss:
     def init_loss_fun(self, state: PyTree) -> Callable:
         return partial(self.loss_fun, state)
 
-    @partial(jax.jit, donate_argnums=[1])
+    # @partial(jax.jit, donate_argnums=[1])
+    @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def apply_l2_reg(self, state: PyTree) -> Tuple[PyTree, Float32[Array, ""]]:
         """Apply a small amount of l2 regularization on the params space, determined by lmbda."""
         weight_penalty, grads = jax.value_and_grad(
             loss_funs.l2_reg, argnums=0, has_aux=False
         )(state.params, self.lmbda)
+
+        grads = jax.lax.pmean(grads, axis_name='gpu_id')
+        weight_penalty = jax.lax.pmean(weight_penalty, axis_name='gpu_id')
+
         state = state.apply_gradients(grads=grads)
         return state, weight_penalty
 
-    @partial(jax.jit, donate_argnums=[0, 1])
+    @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def jit_grads_resnet(
-        self,
-        state: PyTree,
-        X: Float32[Array, "#batchk h w c"],
-        y: Float32[Array, "#batch num_cls"],
+            self,
+            state: PyTree,
+            X: Float32[Array, "#batchk h w c"],
+            y: Float32[Array, "#batch num_cls"],
     ) -> Tuple[PyTree, Float32[Array, ""], Float32[Array, "#batch num_cls"]]:
         loss_fun = self.init_loss_fun(state)
         (loss, (logits, stats)), grads = jax.value_and_grad(
             loss_fun, argnums=0, has_aux=True
         )(state.params, X, y, self.target_type, True)
+
+        grads = jax.lax.pmean(grads, axis_name='gpu_id')
+        loss = jax.lax.pmean(loss, axis_name='gpu_id')
+
         # update parameters and batch statistics
         state = state.apply_gradients(
             grads=grads,
@@ -129,11 +138,11 @@ class Loss:
 
     @partial(jax.jit, donate_argnums=[0, 1, 4])
     def jit_grads_vit(
-        self,
-        state: PyTree,
-        X: Float32[Array, "#batchk h w c"],
-        y: Float32[Array, "#batch num_cls"],
-        rng: Int32[Array, ""],
+            self,
+            state: PyTree,
+            X: Float32[Array, "#batchk h w c"],
+            y: Float32[Array, "#batch num_cls"],
+            rng: Int32[Array, ""],
     ) -> Tuple[
         PyTree,
         Float32[Array, ""],
@@ -147,12 +156,12 @@ class Loss:
         state = state.apply_gradients(grads=grads)
         return state, loss, (logits, rng)
 
-    @partial(jax.jit, donate_argnums=[0, 1])
+    @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def jit_grads_custom(
-        self,
-        state: PyTree,
-        X: Float32[Array, "#batchk h w c"],
-        y: Float32[Array, "#batch num_cls"],
+            self,
+            state: PyTree,
+            X: Float32[Array, "#batchk h w c"],
+            y: Float32[Array, "#batch num_cls"],
     ) -> Tuple[PyTree, Float32[Array, ""], Float32[Array, "#batch num_cls"]]:
         loss_fun = self.init_loss_fun(state)
         (loss, logits), grads = jax.value_and_grad(loss_fun, argnums=0, has_aux=True)(
@@ -161,15 +170,20 @@ class Loss:
             y,
             self.target_type,
         )
+
+        grads = jax.lax.pmean(grads, axis_name='gpu_id')
+        loss = jax.lax.pmean(loss, axis_name='gpu_id')
+        # import pdb;pdb.set_trace()
         state = state.apply_gradients(grads=grads)
         return state, loss, logits
 
+    # @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def update(
-        self,
-        state: PyTree,
-        X: Float32[Array, "#batchk h w c"],
-        y: Float32[Array, "#batch num_cls"],
-        rng=None,
+            self,
+            state: PyTree,
+            X: Float32[Array, "#batchk h w c"],
+            y: Float32[Array, "#batch num_cls"],
+            rng=None,
     ) -> Union[
         Tuple[PyTree, Float32[Array, ""], Float32[Array, "#batch num_cls"]],
         Tuple[
@@ -283,25 +297,24 @@ class OKOTrainer:
             self.init_batch_stats = None
         self.state = None
 
-    def init_optim(self,) -> None:
+    def init_optim(self, ) -> None:
         """Initialize optimizer and training state."""
         optimizer = self.optimaker.get_optim()
         # initialize training state
-        self.state = TrainState.create(
+        self.state = train_state.TrainState.create(
             apply_fn=self.model.apply,
             params=self.init_params if self.state is None else self.state.params,
-            batch_stats=self.init_batch_stats
-            if self.state is None
-            else self.state.batch_stats,
             tx=optimizer,
         )
+        self.state = flax.jax_utils.replicate(self.state)
 
+    # @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def train_step(
-        self,
-        state: PyTree,
-        X: Float32[Array, "#batchk h w c"],
-        y: Float32[Array, "#batch num_cls"],
-        rng=None,
+            self,
+            state: PyTree,
+            X: Float32[Array, "#batchk h w c"],
+            y: Float32[Array, "#batch num_cls"],
+            rng=None,
     ) -> Tuple[PyTree, Float32[Array, ""], Float32[Array, "#batch num_cls"]]:
         # get loss, gradients for objective function, and other outputs of loss function
         if self.backbone == "vit":
@@ -324,7 +337,7 @@ class OKOTrainer:
 
     @partial(jax.jit, static_argnames=["backbone"])
     def inference(
-        self, state: PyTree, X: Float32[Array, "#batchk h w c"], backbone: str, rng=None
+            self, state: PyTree, X: Float32[Array, "#batchk h w c"], backbone: str, rng=None
     ) -> Float32[Array, "#batch num_cls"]:
         if backbone == "vit":
             logits, _ = loss_funs.vit_predict(state, state.params, X, rng, False)
@@ -335,10 +348,10 @@ class OKOTrainer:
         return logits
 
     def compute_accuracy(
-        self,
-        y: Float32[Array, "#batch num_cls"],
-        logits: Float32[Array, "#batch num_cls"],
-        cls_hits: Dict[int, int],
+            self,
+            y: Float32[Array, "#batch num_cls"],
+            logits: Float32[Array, "#batch num_cls"],
+            cls_hits: Dict[int, int],
     ) -> Array:
         batch_hits = loss_funs.class_hits(
             logits=logits, targets=y, target_type=self.data_config.targets
@@ -351,7 +364,7 @@ class OKOTrainer:
 
     @staticmethod
     def collect_hits(
-        cls_hits: Dict[int, List[int]], batch_hits: Dict[int, List[int]]
+            cls_hits: Dict[int, List[int]], batch_hits: Dict[int, List[int]]
     ) -> Dict[int, List[int]]:
         for cls, hits in batch_hits.items():
             cls_hits[cls].extend(hits)
@@ -366,8 +379,15 @@ class OKOTrainer:
             # import pdb;pdb.set_trace()
             # X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
-            X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
-            # X,y = batch
+            # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+            X, y = batch
+            # num_devices = jax.local_device_count()
+            # X = X.reshape(num_devices, int(X.shape[0] / num_devices), *X.shape[1:])
+            # y = y.reshape(num_devices, int(y.shape[0] / num_devices), *y.shape[1:])
+            # import pdb
+            # import time
+            # pdb.set_trace()
+            # t0=time.time()
             if train:
                 self.state, loss, logits = self.train_step(
                     state=self.state, X=X, y=y, rng=self.rng
@@ -378,7 +398,9 @@ class OKOTrainer:
                     y=y,
                 )
             total_loss += loss
-
+            # t1=time.time()
+            # print(t1-t0)
+            # pdb.set_trace()
             # Compute accuracy
             preds = jnp.argmax(logits, axis=-1)
             labels = jnp.argmax(y, axis=-1)
@@ -392,10 +414,11 @@ class OKOTrainer:
         return avg_loss, avg_acc
 
     def train(
-        self, train_batches: Iterator, val_batches: Iterator
+            self, train_batches: Iterator, val_batches: Iterator
     ) -> Tuple[Dict[str, Tuple[float]], int]:
         self.init_optim()
         for epoch in tqdm(range(1, self.optimizer_config.epochs + 1), desc="Epoch"):
+            # import pdb;pdb.set_trace()
             train_performance = self.train_epoch(batches=train_batches, train=True)
             self.train_metrics.append(train_performance)
 

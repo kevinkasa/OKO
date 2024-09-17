@@ -34,13 +34,14 @@ class UInt8orFP32(AbstractDtype):
 
 
 def get_inat_data(data_dir: str, split: str, batch_size: int = 512):
+    num_devices = jax.local_device_count()
+    print(num_devices)
     dataset = INaturalist2019Dataset(
         data_dir,
         split=split,
-        batch_size=batch_size,
+        batch_size=batch_size * num_devices,  # ensure divisible by num GPUs
         augmentations=None,
     )
-
     return dataset
 
 

@@ -122,11 +122,17 @@ class INaturalist2019Dataset:
             batch_images, batch_labels = zip(*results)
             batch_images = np.stack(batch_images)
             batch_labels = np.array(batch_labels)
+
+            num_devices = jax.local_device_count()
+            batch_images = batch_images.reshape(num_devices, -1, *batch_images.shape[1:])
+            batch_labels = batch_labels.reshape(num_devices, -1, *batch_labels.shape[1:])
+
             # Convert to jnp arrays
             batch_images = jnp.array(batch_images)
             batch_labels = self.one_hot_encode(
                 batch_labels, self.num_classes
             )
+
             yield batch_images, batch_labels
 
     def _load_and_process(self, idx):
