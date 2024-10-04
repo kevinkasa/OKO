@@ -135,6 +135,8 @@ class Loss:
             grads=grads,
             batch_stats=stats["batch_stats"],
         )
+
+        loss = jax.lax.pmean(loss, axis_name='gpu_id')
         return state, loss, logits
 
     @partial(jax.jit, donate_argnums=[0, 1, 4])
@@ -176,6 +178,7 @@ class Loss:
         loss = jax.lax.pmean(loss, axis_name='gpu_id')
         # import pdb;pdb.set_trace()
         state = state.apply_gradients(grads=grads)
+        loss = jax.lax.pmean(loss, axis_name='gpu_id')
         return state, loss, logits
 
     # @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
@@ -328,15 +331,16 @@ class OKOTrainer:
     @partial(jax.pmap, axis_name='gpu_id', devices=jax.devices())
     def eval_step(
             self,
+            state: PyTree,
             X: Float32[Array, "#batchk h w c"],
             y: Float32[Array, "#batch num_cls"],
     ) -> Tuple[
         Float32[Array, ""], Float32[Array, "#batch num_cls"]
     ]:
-        logits = self.inference(self.state, X, self.backbone, self.rng)
+        logits = self.inference(state, X, self.backbone, self.rng)
         loss = optax.softmax_cross_entropy(logits, y).mean()
         loss = jax.lax.pmean(loss, axis_name='gpu_id')
-        return loss.item(), logits
+        return loss, logits
 
     @partial(jax.jit, static_argnames=["backbone"])
     def inference(
@@ -405,20 +409,30 @@ class OKOTrainer:
                 )
             else:
                 loss, logits = self.eval_step(
+                    state=self.state,
                     X=X,
                     y=y,
                 )
+
+            # Since loss is the same across devices (after pmean), we can take the first element
+            loss = float(jax.device_get(loss[0]))
             total_loss += loss
-            # t1=time.time()
-            # print(t1-t0)
-            # pdb.set_trace()
+
+            # Bring logits and y back from devices
+            logits = jax.device_get(logits)
+            y = jax.device_get(y)
+
+            # Reshape to combine data from all devices
+            logits = logits.reshape(-1, logits.shape[-1])
+            y = y.reshape(-1, y.shape[-1])
+
             # Compute accuracy
             preds = jnp.argmax(logits, axis=-1)
             labels = jnp.argmax(y, axis=-1)
+
             correct = (preds == labels).sum()
             total_correct += correct
             total_samples += len(labels)
-            del X, y, logits, preds, labels
 
         avg_loss = total_loss / total_samples
         avg_acc = total_correct / total_samples
@@ -449,6 +463,7 @@ class OKOTrainer:
                 # self.logger.add_scalar(
                 #    "val/acc", np.asarray(test_performance[1]), global_step=epoch
                 # )
+
                 print(
                     f"Epoch: {epoch:03d}, Train Loss: {train_performance[0]:.4f}, Train Acc: {train_performance[1]:.4f}, Val Loss: {test_performance[0]:.4f}, Val Acc: {test_performance[1]:.4f}\n"
                 )
