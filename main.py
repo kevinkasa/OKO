@@ -101,7 +101,7 @@ def parseargs():
         type=int,
         nargs="+",
         choices=list(range(10)),
-        help="number of odd classes in a set of k+2 examples with 2 examples coming from the same class",
+        help="number of odd classes in a set of k+2 examples with 2 examples coming from the same class. If k ==0, regular CE training",
     )
     aa(
         "--targets",
@@ -318,9 +318,9 @@ def get_splits(
         data_dir = r'/h/kkasa/datasets/inat_comp/2019/'
 
         # Load training, validation, or test dataset as tf.data.Dataset
-        train_set = utils.get_inat_data(data_dir, "train",)
-        val_set = utils.get_inat_data(data_dir, "val",) # TODO: Split val set?
-        test_set = utils.get_inat_data(data_dir, "val",)
+        train_set = utils.get_inat_data(data_dir, "train", )
+        val_set = utils.get_inat_data(data_dir, "val", )  # TODO: Split val set?
+        test_set = utils.get_inat_data(data_dir, "val", )
 
     return (train_set, val_set, test_set)
 
@@ -748,7 +748,7 @@ if __name__ == "__main__":
     #     rnd_seed=rnd_seed,
     # )
 
-    input_dim = (224,224,3)
+    input_dim = (224, 224, 3)
     num_classes = args.n_classes
 
     data_config, model_config, optimizer_config = get_configs(
@@ -765,7 +765,7 @@ if __name__ == "__main__":
         sampling=sampling,
     )
 
-    if args.dataset in utils.RGB_DATASETS: # TODO: Inat not here, make more explicit
+    if args.dataset in utils.RGB_DATASETS:  # TODO: Inat not here, make more explicit
         val_images, val_labels = val_set
         test_images, test_labels = test_set
         val_images = utils.normalize_images(

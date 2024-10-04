@@ -61,7 +61,7 @@ class OKOHead(nn.Module):
         Tuple[Float32[Array, "#batch num_cls"], Float32[Array, "#batch num_cls"]],
     ]:
         if train:
-            out = self.query(x)
+            out = self.aggregation(x)
         else:
             out = self.query(x)
         return out

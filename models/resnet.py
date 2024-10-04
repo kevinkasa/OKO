@@ -153,11 +153,19 @@ class ResNet(nn.Module):
     )
 
     def setup(self) -> None:
-        self.head = OKOHead(
-            backbone="resnet",
-            num_classes=self.num_classes,
-            k=self.k,
-        )
+        '''
+        Can choose from OKO training or regular CE training by specifiying value of k
+        '''
+        if self.k > 0:
+            self.head = OKOHead(
+                backbone="resnet",
+                num_classes=self.num_classes,
+                k=self.k,
+            )
+        elif self.k == 0:
+            self.head = nn.Dense(self.num_classes, name="clf_head")
+        else:
+            raise ValueError(f'K needs to be >=0, currently: {self.k}')
 
     def _make_layers(self, stem_cls: Callable, block_cls: Callable) -> List[Callable]:
         layers = [stem_cls(), self.pool_fn]
@@ -170,7 +178,7 @@ class ResNet(nn.Module):
 
     @nn.compact
     def __call__(
-        self, x: Array, train: bool = True
+            self, x: Array, train: bool = True
     ) -> Float32[Array, "#batch num_cls"]:
         conv_block_cls = partial(
             self.conv_block_cls, conv_cls=self.conv_cls, norm_cls=self.norm_cls
