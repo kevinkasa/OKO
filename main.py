@@ -5,12 +5,11 @@ import argparse
 import itertools
 import math
 import os
-import pdb
 import random
 import pdb
 import warnings
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import flax
 import jax
@@ -23,8 +22,10 @@ from ml_collections import config_dict
 from sklearn.metrics import roc_auc_score
 from tensorflow_probability.substrates import jax as tfp
 from typeguard import typechecked as typechecker
+from jax_resnet import pretrained_resnet
 
 import models
+from models import pretrained
 import utils
 from config import get_configs
 from data import DataPartitioner, OKOLoader
@@ -87,6 +88,12 @@ def parseargs():
             'i_naturalist2021',
         ],
     )
+    aa(
+        "--in1k_pretrained",
+        action="store_true",
+        help="Start from pre-trained IN1k weights",
+    )
+
     aa(
         "--network",
         type=str,
@@ -361,6 +368,8 @@ def run(
         val_set: Tuple[Array, Array],
         steps: int,
         rnd_seed: int,
+        pretrained_variables: Optional[flax.core.frozen_dict.FrozenDict] = None,
+
 ) -> tuple:
     trainer = OKOTrainer(
         model=model,
@@ -370,6 +379,7 @@ def run(
         dir_config=dir_config,
         steps=steps,
         rnd_seed=rnd_seed,
+        pretrained_variables=pretrained_variables,
     )
 
     # train_batches = utils.create_tf_dataset(train_set, batch_size=128, shuffle=True)
@@ -663,8 +673,7 @@ def create_model(model_cls, model_config, data_config) -> Any:
         k=data_config.k,
     )
 
-
-def get_model(model_config: FrozenDict, data_config: FrozenDict):
+def get_model(model_config: FrozenDict, data_config: FrozenDict, rnd_seed):
     """Create model instance."""
     model_name = model_config.type + model_config.depth
     net = getattr(models, model_name)
@@ -672,6 +681,11 @@ def get_model(model_config: FrozenDict, data_config: FrozenDict):
         model = create_model(
             model_cls=net, model_config=model_config, data_config=data_config
         )
+        if model_config.in1k_pretrained:  # TODO: this should be implemented for rest of models also
+            model, pretrained_variables = pretrained.get_model_and_variables(model_name.lower(), rnd_seed,
+                                                                             model_config.n_classes, data_config.k)
+            return model, pretrained_variables
+
     elif model_config.type.lower() == "vit":
         model = net(
             embed_dim=256,
@@ -706,7 +720,7 @@ def get_model(model_config: FrozenDict, data_config: FrozenDict):
         raise ValueError(
             "\nNo model type other than (custom) CNN, ResNet or ViT implemented.\n"
         )
-    return model
+    return model, None
 
 
 if __name__ == "__main__":
@@ -763,6 +777,7 @@ if __name__ == "__main__":
         num_odds=num_odds,
         eta=eta,
         sampling=sampling,
+        in1k_pretrained=args.in1k_pretrained
     )
 
     if args.dataset in utils.RGB_DATASETS:  # TODO: Inat not here, make more explicit
@@ -783,7 +798,7 @@ if __name__ == "__main__":
         )
         train_set = (train_images, train_labels)
 
-    model = get_model(model_config=model_config, data_config=data_config)
+    model, pretrained_variables = get_model(model_config=model_config, data_config=data_config, rnd_seed=rnd_seed)
 
     dir_config = create_dirs(
         results_root=args.out_path,
@@ -802,6 +817,7 @@ if __name__ == "__main__":
         val_set=val_set,
         steps=args.steps,
         rnd_seed=rnd_seed,
+        pretrained_variables=pretrained_variables
     )
     print('TRAINING FINISHED, STARTING INFERENCE')
     logits, train_labels = inference(

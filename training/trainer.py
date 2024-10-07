@@ -4,6 +4,7 @@
 __all__ = ["OKOTrainer"]
 
 import os
+import pdb
 import pickle
 from collections import defaultdict
 from dataclasses import dataclass
@@ -28,8 +29,8 @@ from tqdm.auto import tqdm
 
 import utils
 import training.loss_funs as loss_funs
-# from training.train_state import TrainState
-from flax.training import train_state
+from training.train_state import TrainState
+# from flax.training import train_state
 
 
 @dataclass(init=True, repr=True)
@@ -123,6 +124,7 @@ class Loss:
             y: Float32[Array, "#batch num_cls"],
     ) -> Tuple[PyTree, Float32[Array, ""], Float32[Array, "#batch num_cls"]]:
         loss_fun = self.init_loss_fun(state)
+
         (loss, (logits, stats)), grads = jax.value_and_grad(
             loss_fun, argnums=0, has_aux=True
         )(state.params, X, y, self.target_type, True)
@@ -176,7 +178,7 @@ class Loss:
 
         grads = jax.lax.pmean(grads, axis_name='gpu_id')
         loss = jax.lax.pmean(loss, axis_name='gpu_id')
-        # import pdb;pdb.set_trace()
+
         state = state.apply_gradients(grads=grads)
         loss = jax.lax.pmean(loss, axis_name='gpu_id')
         return state, loss, logits
@@ -217,12 +219,13 @@ class OKOTrainer:
     dir_config: FrozenDict
     steps: int
     rnd_seed: int
+    pretrained_variables: Optional[flax.core.frozen_dict.FrozenDict] = None
 
     def __post_init__(self) -> None:
         self.rng_seq = hk.PRNGSequence(self.rnd_seed)
         self.rng = jax.random.PRNGKey(self.rnd_seed)
         self.gpu_devices = jax.local_devices(backend="gpu")
-        self.backbone = "custom"  # self.model_config.type.lower()
+        self.backbone = self.model_config.type.lower()  # self.backbone
         # inititalize model
         self.init_model()
         # enable logging
@@ -278,13 +281,16 @@ class OKOTrainer:
 
         batch = get_init_batch(self.data_config.oko_batch_size)
         batch = jax.device_put(batch, device=self.gpu_devices[0])
-
         if self.backbone == "resnet":
-            variables = self.model.init(key_j, batch, train=True)
-            init_params, self.init_batch_stats = (
-                variables["params"],
-                variables["batch_stats"],
-            )
+            if self.pretrained_variables is not None:  # use pretrained
+                init_params = self.pretrained_variables['params']
+                self.init_batch_stats = self.pretrained_variables.get('batch_stats')
+            else:
+                variables = self.model.init(key_j, batch, train=True)
+                init_params, self.init_batch_stats = (
+                    variables["params"],
+                    variables["batch_stats"],
+                )
             setattr(self, "init_params", init_params)
         else:
             if self.backbone == "vit":
@@ -305,9 +311,11 @@ class OKOTrainer:
         """Initialize optimizer and training state."""
         optimizer = self.optimaker.get_optim()
         # initialize training state
-        self.state = train_state.TrainState.create(
+
+        self.state = TrainState.create(
             apply_fn=self.model.apply,
             params=self.init_params if self.state is None else self.state.params,
+            batch_stats=self.init_batch_stats if self.state is None else self.state.batch_stats,
             tx=optimizer,
         )
         self.state = flax.jax_utils.replicate(self.state)
@@ -399,10 +407,6 @@ class OKOTrainer:
             X = X.reshape(num_devices, int(X.shape[0] / num_devices), *X.shape[1:])
             y = y.reshape(num_devices, int(y.shape[0] / num_devices), *y.shape[1:])
 
-            # import pdb
-            # import time
-            # pdb.set_trace()
-            # t0=time.time()
             if train:
                 self.state, loss, logits = self.train_step(
                     state=self.state, X=X, y=y, rng=self.rng
@@ -417,6 +421,7 @@ class OKOTrainer:
             # Since loss is the same across devices (after pmean), we can take the first element
             loss = float(jax.device_get(loss[0]))
             total_loss += loss
+            # print(f'Batch Loss: {loss}, Total Loss: {total_loss}')
 
             # Bring logits and y back from devices
             logits = jax.device_get(logits)
@@ -441,9 +446,10 @@ class OKOTrainer:
     def train(
             self, train_batches: Iterator, val_batches: Iterator
     ) -> Tuple[Dict[str, Tuple[float]], int]:
+
         self.init_optim()
         for epoch in tqdm(range(1, self.optimizer_config.epochs + 1), desc="Epoch"):
-            # import pdb;pdb.set_trace()
+
             train_performance = self.train_epoch(batches=train_batches, train=True)
             self.train_metrics.append(train_performance)
 
@@ -506,6 +512,7 @@ class OKOTrainer:
             pickle.dump(metrics, f)
 
     def save_model(self, epoch: int = 0) -> None:
+        print('Saving model')
         # save current model at certain training iteration
         if self.backbone == "resnet":
             target = {

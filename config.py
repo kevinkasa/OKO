@@ -50,7 +50,7 @@ def get_configs(args, **kwargs):
 
     model_config = config_dict.ConfigDict()
     model_config.type = re.compile(r"[a-zA-Z]+").search(args.network).group()
-
+    model_config.in1k_pretrained = kwargs.pop('in1k_pretrained')
     try:
         model_config.depth = re.compile(r"\d+").search(args.network).group()
     except AttributeError:

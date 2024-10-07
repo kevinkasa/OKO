@@ -138,6 +138,7 @@ def resnet_predict(
         X: Float32[Array, "#batchk h w c"],
         train: bool,
 ) -> Union[Tuple[Array, PyTree], Array]:
+
     return state.apply_fn(
         {"params": params, "batch_stats": state.batch_stats},
         X,

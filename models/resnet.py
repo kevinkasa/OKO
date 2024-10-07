@@ -188,7 +188,7 @@ class ResNet(nn.Module):
         layers = self._make_layers(stem_cls, block_cls)
         for layer in layers:
             x = layer(x)
-        x = self.head(x, train)
+        x = self.head(x, train) if self.k > 0 else self.head(x)
         return x
 
 
