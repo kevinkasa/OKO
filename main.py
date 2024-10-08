@@ -267,9 +267,9 @@ def make_log_dir(
         data_config.name,
         model_config.task,
         model_config.type + model_config.depth,
-        data_config.targets,
-        f"{data_config.n_samples}_samples",
-        f"{data_config.class_probs:.2f}",
+        # data_config.targets,
+        # f"{data_config.n_samples}_samples",
+        # f"{data_config.class_probs:.2f}",
         f"seed{rnd_seed:02d}",
     )
     return path

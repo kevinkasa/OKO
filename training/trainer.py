@@ -30,6 +30,8 @@ from tqdm.auto import tqdm
 import utils
 import training.loss_funs as loss_funs
 from training.train_state import TrainState
+
+
 # from flax.training import train_state
 
 
@@ -446,9 +448,20 @@ class OKOTrainer:
     def train(
             self, train_batches: Iterator, val_batches: Iterator
     ) -> Tuple[Dict[str, Tuple[float]], int]:
+        # Check if a checkpoint exists
+        latest_checkpoint = checkpoints.latest_checkpoint(self.dir_config.log_dir)
+        if latest_checkpoint:
+            print(f"Resuming training from checkpoint: {latest_checkpoint}")
+            # Returns the epoch number from the checkpoint filename
+            last_epoch = self.load_model()
+            start_epoch = last_epoch + 1
+        else:
+            print("No checkpoint found. Starting training from scratch.")
+            self.init_optim()
+            start_epoch = 1
 
-        self.init_optim()
-        for epoch in tqdm(range(1, self.optimizer_config.epochs + 1), desc="Epoch"):
+        # self.init_optim()
+        for epoch in tqdm(range(start_epoch, self.optimizer_config.epochs + 1), desc="Epoch"):
 
             train_performance = self.train_epoch(batches=train_batches, train=True)
             self.train_metrics.append(train_performance)
@@ -513,44 +526,52 @@ class OKOTrainer:
 
     def save_model(self, epoch: int = 0) -> None:
         print('Saving model')
-        # save current model at certain training iteration
+        # Unreplicate the state before saving
+        unreplicated_state = jax.device_get(flax.jax_utils.unreplicate(self.state))
+
         if self.backbone == "resnet":
             target = {
-                "params": self.state.params,
-                "batch_stats": self.state.batch_stats,
+                "params": unreplicated_state.params,
+                "batch_stats": unreplicated_state.batch_stats,
             }
         else:
-            target = self.state.params
+            target = unreplicated_state.params
         checkpoints.save_checkpoint(
-            ckpt_dir=self.dir_config.log_dir, target=target, step=epoch, overwrite=True
+            ckpt_dir=self.dir_config.log_dir, target=target, step=epoch, prefix=f"checkpoint_epoch_", overwrite=True
         )
 
-    def load_model(self) -> None:
-        """Loade model checkpoint. Different checkpoint is used for pretrained models."""
+    def load_model(self) -> int:
+        """load model checkpoint. Different checkpoint is used for pretrained models."""
+        latest_checkpoint = checkpoints.latest_checkpoint(self.dir_config.log_dir)
+        if not latest_checkpoint:
+            raise ValueError("No checkpoint found to load.")
+
         if self.backbone == "resnet":
             state_dict = checkpoints.restore_checkpoint(
                 ckpt_dir=self.dir_config.log_dir, target=None
             )
-            self.state = TrainState.create(
+            # Replicate the loaded state for multi-GPU training
+            self.state = flax.jax_utils.replicate(TrainState.create(
                 apply_fn=self.model.apply,
-                mle_params=state_dict["params"],
+                params=state_dict["params"],
                 batch_stats=state_dict["batch_stats"],
-                tx=self.state.tx
-                if self.state
-                else optax.sgd(self.optimizer_config.lr, momentum=0.9),
-            )
+                tx=self.state.tx if self.state else optax.sgd(self.optimizer_config.lr, momentum=0.9),
+            ))
         else:
             params = checkpoints.restore_checkpoint(
                 ckpt_dir=self.dir_config.log_dir, target=None
             )
-            self.state = TrainState.create(
+            # Replicate the loaded state for multi-GPU training
+            self.state = flax.jax_utils.replicate(TrainState.create(
                 apply_fn=self.model.apply,
                 params=params,
-                tx=self.state.tx
-                if self.state
-                else optax.adam(self.optimizer_config.lr),
+                tx=self.state.tx if self.state else optax.adam(self.optimizer_config.lr),
                 batch_stats=None,
-            )
+            ))
+
+        # Extract the epoch number from the checkpoint filename
+        epoch = int(latest_checkpoint.split('_')[-1])
+        return epoch
 
     def __len__(self) -> int:
         return self.optimizer_config.epochs
