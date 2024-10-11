@@ -397,7 +397,7 @@ class OKOTrainer:
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
             X, y = batch
-
+            pdb.set_trace()
             X = X.numpy()  # Convert TensorFlow tensor to NumPy array
             y = y.numpy()  # Convert TensorFlow tensor to NumPy array
 
