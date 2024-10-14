@@ -396,8 +396,11 @@ class OKOTrainer:
             # X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
+
             X, y = batch
-            pdb.set_trace()
+            # pdb.set_trace()
+            X = X.view(-1, 3, 224, 224)  # Shape will be [batch_size * set_size, C, H, W]
+            X = X.permute(0, 2, 3, 1)
             X = X.numpy()  # Convert TensorFlow tensor to NumPy array
             y = y.numpy()  # Convert TensorFlow tensor to NumPy array
 

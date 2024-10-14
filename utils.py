@@ -47,7 +47,7 @@ class UInt8orFP32(AbstractDtype):
 #     return transform
 
 
-def get_inat_data(data_dir: str, split: str, batch_size: int = 128):
+def get_inat_data(data_dir: str, split: str, batch_size: int = 256):
     num_devices = jax.local_device_count()
     print(num_devices)
     dataset = create_dataset(
@@ -57,35 +57,6 @@ def get_inat_data(data_dir: str, split: str, batch_size: int = 128):
         category='name',
         batch_size=batch_size*num_devices
     )
-    # # import pdb;pdb.set_trace()
-    # for images, labels in dataset:
-    #     start_time = time.time()  # Start the timer
-    #
-    #     # Simulate some processing on the batch (optional)
-    #     # time.sleep(0.1)  # You can remove this line, it's just for simulation
-    #
-    #     end_time = time.time()  # End the timer
-    #     batch_time = end_time - start_time
-    #     # batch_times.append(batch_time)
-    #
-    #     print(f"Batch  took {batch_time} seconds to load")
-    #
-    # # batch_times = []  # List to store time for each batch
-    # # for batch_idx, (data, labels) in enumerate(data_loader):
-    # #     start_time = time.time()  # Start the timer
-    # #
-    # #     # Simulate some processing on the batch (optional)
-    # #     # time.sleep(0.1)  # You can remove this line, it's just for simulation
-    # #
-    # #     end_time = time.time()  # End the timer
-    # #     batch_time = end_time - start_time
-    # #     # batch_times.append(batch_time)
-    # #
-    # #     print(f"Batch {batch_idx + 1} took {batch_time} seconds to load")
-    # #
-    # # average_batch_time = sum(batch_times) / len(batch_times)
-    # # print(f"Average time per batch: {average_batch_time:.4f} seconds")
-    # # import pdb;pdb.set_trace()
     return dataset
 
 
