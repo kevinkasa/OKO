@@ -47,7 +47,9 @@ class UInt8orFP32(AbstractDtype):
 #     return transform
 
 
-def get_inat_data(data_dir: str, split: str, batch_size: int = 256):
+def get_inat_data(data_dir: str, split: str, batch_size: int = 256, k=0):
+    # import pdb;
+    # pdb.set_trace()
     num_devices = jax.local_device_count()
     print(num_devices)
     dataset = create_dataset(
@@ -55,8 +57,24 @@ def get_inat_data(data_dir: str, split: str, batch_size: int = 256):
         split=split,
         year=2019,
         category='name',
-        batch_size=batch_size*num_devices
+        batch_size=batch_size * num_devices,
+        k=k
     )
+
+    # s1 = time.time()
+    # for images, labels in dataset:
+    #     start_time = time.time()  # Start the timer
+    #
+    #     # Simulate some processing on the batch (optional)
+    #     # time.sleep(0.1)  # You can remove this line, it's just for simulation
+    #
+    #     end_time = time.time()  # End the timer
+    #     batch_time = end_time - start_time
+    #     # batch_times.append(batch_time)
+    #
+    #     print(f"Batch  took {batch_time} seconds to load")
+    # s2 = time.time()
+    # print(f'full dataset took: {s2 - s1}')
     return dataset
 
 

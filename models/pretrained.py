@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from flax.core import FrozenDict,frozen_dict
+from flax.core import FrozenDict, frozen_dict
 from jax_resnet import pretrained_resnet, slice_variables, Sequential
 
 from models.oko_head import OKOHead
@@ -50,6 +50,9 @@ def _get_backbone_and_params(model_arch: str):
     if model_arch == 'resnet18':
         resnet_tmpl, params = pretrained_resnet(18)
         model = resnet_tmpl()
+    elif model_arch == 'resnet50':
+        resnet_tmpl, params = pretrained_resnet(50)
+        model = resnet_tmpl()
     else:
         raise NotImplementedError
 
@@ -81,7 +84,14 @@ def get_model_and_variables(model_arch: str, head_init_key: int, num_classes: in
     '''
 
     # Step 1: Initialize dummy inputs
-    inputs = jnp.ones((1, 224, 224, 3), jnp.float32)
+    if k == 0:
+        inputs = jnp.ones((1, 224, 224, 3), jnp.float32)
+    else:
+        inputs = jnp.ones((k+2, 224, 224, 3), jnp.float32)
+
+    #     random.normal(
+    #     key_i, shape=(batch_size * (self.data_config.k + 2), H, W, C)
+    # )
 
     # Step 2: Get backbone and its pretrained parameters
     backbone, backbone_params = _get_backbone_and_params(model_arch)
@@ -92,7 +102,7 @@ def get_model_and_variables(model_arch: str, head_init_key: int, num_classes: in
 
     # Step 4: Initialize the Model's variables
     key = jax.random.PRNGKey(head_init_key)
-    variables = model.init(key, inputs, train=True) # todo: may need to account for OKO batch here like in trainer.py
+    variables = model.init(key, inputs, train=True)  # todo: may need to account for OKO batch here like in trainer.py
 
     # Step 5: Merge pretrained backbone parameters into the model's variables
     # Convert FrozenDict to mutable dict using flax.core.unfreeze

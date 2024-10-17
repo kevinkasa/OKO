@@ -106,8 +106,6 @@ def parseargs():
     aa(
         "--k",
         type=int,
-        nargs="+",
-        choices=list(range(10)),
         help="number of odd classes in a set of k+2 examples with 2 examples coming from the same class. If k ==0, regular CE training",
     )
     aa(
@@ -120,29 +118,25 @@ def parseargs():
     aa(
         "--oko_batch_sizes",
         type=int,
-        nargs="+",
         help="number of sets per mini-batch (i.e., number of subsamples x 3",
     )
     aa(
         "--main_batch_sizes",
         type=int,
-        nargs="+",
         help="number of triplets per mini-batch (i.e., number of subsamples x 3",
     )
     aa(
         "--num_sets",
         type=int,
-        nargs="+",
         help="maximum number of triplets during each epoch",
     )
     aa(
         "--probability_masses",
         type=float,
-        nargs="+",
         help="probability mass that will be equally distributed among the k most frequent classes",
     )
-    aa("--epochs", type=int, nargs="+", help="maximum number of epochs")
-    aa("--etas", type=float, nargs="+", help="learning rate for optimizer")
+    aa("--epochs", type=int,  help="maximum number of epochs")
+    aa("--etas", type=float,  help="learning rate for optimizer")
     aa(
         "--optim",
         type=str,
@@ -173,7 +167,6 @@ def parseargs():
         "--sampling",
         type=str,
         default="uniform",
-        nargs="+",
         choices=["uniform"],
         help="how to sample mini-batches per iteration",
     )
@@ -212,7 +205,6 @@ def parseargs():
     aa(
         "--seeds",
         type=int,
-        nargs="+",
         help="list of random seeds for cross-validating results over different random initializations",
     )
     args = parser.parse_args()
@@ -315,7 +307,7 @@ def create_dirs(
 @jaxtyped
 @typechecker
 def get_splits(
-        dataset: str,
+        dataset: str, k=0
 ):
     if dataset != 'i_naturalist2019':
         train_set = utils.get_data(dataset, split="train")
@@ -325,9 +317,9 @@ def get_splits(
         data_dir = r'/h/kkasa/datasets/inat_comp/2019/'
 
         # Load training, validation, or test dataset as tf.data.Dataset
-        train_set = utils.get_inat_data(data_dir, "train", )
-        val_set = utils.get_inat_data(data_dir, "val", )  # TODO: Split val set?
-        test_set = utils.get_inat_data(data_dir, "val", )
+        train_set = utils.get_inat_data(data_dir, "train", k=k)
+        val_set = utils.get_inat_data(data_dir, "val", k=k)  # TODO: Split val set?
+        test_set = utils.get_inat_data(data_dir, "val", k=k)
 
     return (train_set, val_set, test_set)
 
@@ -673,6 +665,7 @@ def create_model(model_cls, model_config, data_config) -> Any:
         k=data_config.k,
     )
 
+
 def get_model(model_config: FrozenDict, data_config: FrozenDict, rnd_seed):
     """Create model instance."""
     model_name = model_config.type + model_config.depth
@@ -727,30 +720,31 @@ if __name__ == "__main__":
     # parse arguments
     args = parseargs()
     # get current combination of settings
-    (
-        (n_samples, epochs, oko_batch_size, main_batch_size, eta, num_sets),
-        p_mass,
-        num_odds,
-        sampling,
-        rnd_seed,
-    ) = get_combination(
-        samples=args.samples,
-        epochs=args.epochs,
-        oko_batch_sizes=args.oko_batch_sizes,
-        main_batch_sizes=args.main_batch_sizes,
-        learning_rates=args.etas,
-        num_sets=args.num_sets,
-        probability_masses=args.probability_masses,
-        num_odds=args.k,
-        sampling_policies=args.sampling,
-        seeds=args.seeds,
-    )
+    # (
+    #     (n_samples, epochs, oko_batch_size, main_batch_size, eta, num_sets),
+    #     p_mass,
+    #     num_odds,
+    #     sampling,
+    #     rnd_seed,
+    # ) = get_combination(
+    #     samples=args.samples,
+    #     epochs=args.epochs,
+    #     oko_batch_sizes=args.oko_batch_sizes,
+    #     main_batch_sizes=args.main_batch_sizes,
+    #     learning_rates=args.etas,
+    #     num_sets=args.num_sets,
+    #     probability_masses=args.probability_masses,
+    #     num_odds=args.k,
+    #     sampling_policies=args.sampling,
+    #     seeds=args.seeds,
+    # )
 
+    rnd_seed = args.seeds
     # seed random number generator
-    random.seed(rnd_seed)
-    np.random.seed(rnd_seed)
+    random.seed(args.seeds)
+    np.random.seed(args.seeds)
 
-    train_set, val_set, test_set = get_splits(args.dataset)
+    train_set, val_set, test_set = get_splits(args.dataset, k=args.k)
 
     # TODO: For iNat we do not want to do any subsampling
     # train_set = get_fs_subset(
@@ -767,16 +761,16 @@ if __name__ == "__main__":
 
     data_config, model_config, optimizer_config = get_configs(
         args,
-        n_samples=n_samples,
+        n_samples=args.samples,
         input_dim=input_dim,
-        epochs=epochs,
-        oko_batch_size=oko_batch_size,
-        main_batch_size=main_batch_size,
-        num_sets=num_sets,
-        p_mass=p_mass,
-        num_odds=num_odds,
-        eta=eta,
-        sampling=sampling,
+        epochs=args.epochs,
+        oko_batch_size=args.oko_batch_sizes,
+        main_batch_size=args.main_batch_sizes,
+        num_sets=args.num_sets,
+        p_mass=args.probability_masses,
+        num_odds=args.k,
+        eta=args.etas,
+        sampling=args.sampling,
         in1k_pretrained=args.in1k_pretrained
     )
 
@@ -830,14 +824,14 @@ if __name__ == "__main__":
         model_config=model_config,
         data_config=data_config,
         dir_config=dir_config,
-        batch_size=main_batch_size,
+        batch_size=args.main_batch_size,
         collect_reps=args.collect_reps,
     )
     calibration_dir = make_calibration_dir(
         root=args.out_path,
         data_config=data_config,
         model_config=model_config,
-        rnd_seed=rnd_seed,
+        rnd_seed=args.seeds,
     )
     if not os.path.exists(calibration_dir):
         print("\n...Creating directory for analyzing model calibration.\n")
