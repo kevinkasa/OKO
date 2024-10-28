@@ -5,12 +5,14 @@ __all__ = ["OKOTrainer"]
 
 import os
 import pdb
+import time
 import pickle
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
+import torch
 import flax
 import haiku as hk
 import jax
@@ -281,7 +283,7 @@ class OKOTrainer:
                 key_i, shape=(batch_size * (self.data_config.k + 2), H, W, C)
             )
 
-        batch = get_init_batch(self.data_config.oko_batch_size)
+        batch = get_init_batch(64*jax.local_device_count())
         batch = jax.device_put(batch, device=self.gpu_devices[0])
         if self.backbone == "resnet":
             if self.pretrained_variables is not None:  # use pretrained
@@ -392,25 +394,30 @@ class OKOTrainer:
         total_loss = 0.0
         total_correct = 0
         total_samples = 0
+        # pdb.set_trace()
+        # end = time.time()
         for step, batch in tqdm(enumerate(batches), desc="Batch", leave=False):
+            # data_time = time.time()
+            # print(f'data load time: {data_time-end}\n')
             # X_jax, y_jax = utils.convert_tf_batch_to_jax(batch)
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in (X_jax, y_jax))
             # X, y = tuple(jax.device_put(x, device=self.gpu_devices[0]) for x in batch)
-
+            # pdb.set_trace()
             X, y = batch
             # pdb.set_trace()
             X = X.view(-1, 3, 224, 224)  # Shape will be [batch_size * set_size, C, H, W]
             X = X.permute(0, 2, 3, 1)
-            X = X.numpy()  # Convert TensorFlow tensor to NumPy array
-            y = y.numpy()  # Convert TensorFlow tensor to NumPy array
+            # X = X.numpy()  # Convert TensorFlow tensor to NumPy array
+            # y = y.numpy()  # Convert TensorFlow tensor to NumPy array
 
             X = jnp.asarray(X)  # Convert to JAX array
             y = jnp.asarray(y)  # Convert to JAX array
             y = jax.nn.one_hot(y, 1010)  # TODO: CLI
-
+            # pdb.set_trace()
             num_devices = jax.local_device_count()
             X = X.reshape(num_devices, int(X.shape[0] / num_devices), *X.shape[1:])
             y = y.reshape(num_devices, int(y.shape[0] / num_devices), *y.shape[1:])
+            # pdb.set_trace()
 
             if train:
                 self.state, loss, logits = self.train_step(
@@ -422,6 +429,9 @@ class OKOTrainer:
                     X=X,
                     y=y,
                 )
+
+            # train_time = time.time()
+            # print(f'model training time: {train_time-data_time}\n')
 
             # Since loss is the same across devices (after pmean), we can take the first element
             loss = float(jax.device_get(loss[0]))
@@ -443,6 +453,9 @@ class OKOTrainer:
             correct = (preds == labels).sum()
             total_correct += correct
             total_samples += len(labels)
+            # batch_time = time.time()
+            # print(f'batch time: {batch_time-end}\n------\n')
+            # end = time.time()
 
         avg_loss = total_loss / total_samples
         avg_acc = total_correct / total_samples
@@ -462,8 +475,8 @@ class OKOTrainer:
             print("No checkpoint found. Starting training from scratch.")
             self.init_optim()
             start_epoch = 1
-
         # self.init_optim()
+        # pdb.set_trace()
         for epoch in tqdm(range(start_epoch, self.optimizer_config.epochs + 1), desc="Epoch"):
 
             train_performance = self.train_epoch(batches=train_batches, train=True)
@@ -494,6 +507,9 @@ class OKOTrainer:
                 # This seems to prevent OOMs and / or memory leaks
                 jax.clear_caches()
                 jax.clear_backends()
+                # Force PyTorch CUDA cache flush
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
             if epoch % self.steps == 0:
                 self.save_model(epoch=epoch)

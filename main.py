@@ -135,8 +135,8 @@ def parseargs():
         type=float,
         help="probability mass that will be equally distributed among the k most frequent classes",
     )
-    aa("--epochs", type=int,  help="maximum number of epochs")
-    aa("--etas", type=float,  help="learning rate for optimizer")
+    aa("--epochs", type=int, help="maximum number of epochs")
+    aa("--etas", type=float, help="learning rate for optimizer")
     aa(
         "--optim",
         type=str,
@@ -314,13 +314,13 @@ def get_splits(
         val_set = utils.get_data(dataset, split="val")
         test_set = utils.get_data(dataset, split="test")
     else:
-        data_dir = r'/h/kkasa/datasets/inat_comp/2019/'
-
+        data_dir = r'/scratch/ssd004/scratch/kkasa/data/inat_comp/2019/'
+        # data_dir = r'/h/kkasa/datasets/inat_comp/2019/'
         # Load training, validation, or test dataset as tf.data.Dataset
         train_set = utils.get_inat_data(data_dir, "train", k=k)
         val_set = utils.get_inat_data(data_dir, "val", k=k)  # TODO: Split val set?
         test_set = utils.get_inat_data(data_dir, "val", k=k)
-
+        # pdb.set_trace()
     return (train_set, val_set, test_set)
 
 

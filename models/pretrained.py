@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import jax.random as random
 import flax.linen as nn
 from flax.core import FrozenDict, frozen_dict
 from jax_resnet import pretrained_resnet, slice_variables, Sequential
@@ -82,16 +83,16 @@ def get_model_and_variables(model_arch: str, head_init_key: int, num_classes: in
         - model: Instance of Model
         - variables: FrozenDict containing model parameters and batch statistics
     '''
+    key = jax.random.PRNGKey(head_init_key)
 
     # Step 1: Initialize dummy inputs
     if k == 0:
         inputs = jnp.ones((1, 224, 224, 3), jnp.float32)
     else:
         inputs = jnp.ones((k+2, 224, 224, 3), jnp.float32)
-
-    #     random.normal(
-    #     key_i, shape=(batch_size * (self.data_config.k + 2), H, W, C)
-    # )
+        # inputs = random.normal(
+        #     key, shape=(64 * (k + 2), 224, 224, 3)
+        # )
 
     # Step 2: Get backbone and its pretrained parameters
     backbone, backbone_params = _get_backbone_and_params(model_arch)
@@ -101,7 +102,6 @@ def get_model_and_variables(model_arch: str, head_init_key: int, num_classes: in
     model = Model(backbone=backbone, num_classes=num_classes, k=k)
 
     # Step 4: Initialize the Model's variables
-    key = jax.random.PRNGKey(head_init_key)
     variables = model.init(key, inputs, train=True)  # todo: may need to account for OKO batch here like in trainer.py
 
     # Step 5: Merge pretrained backbone parameters into the model's variables

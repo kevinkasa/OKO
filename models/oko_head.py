@@ -11,6 +11,7 @@ from einops import rearrange
 from jax import vmap
 from jaxtyping import Array, Float32, jaxtyped
 from typeguard import typechecked as typechecker
+from time import time
 
 
 class OKOHead(nn.Module):
@@ -41,11 +42,12 @@ class OKOHead(nn.Module):
     @jaxtyped
     @typechecker
     def aggregation(
-        self, x: Float32[Array, "#batchk d"]
+            self, x: Float32[Array, "#batchk d"]
     ) -> Float32[Array, "#batch num_cls"]:
         """Aggregate logits over all members in each set."""
         x = rearrange(x, "(b k) d -> b k d", b=x.shape[0] // (self.k + 2), k=self.k + 2)
         dots = vmap(self.query, in_axes=1, out_axes=1)(x)
+        # dots = self.query(x)
         out = dots.sum(axis=1)
         return out
 
@@ -53,9 +55,9 @@ class OKOHead(nn.Module):
     @jaxtyped
     @typechecker
     def __call__(
-        self,
-        x: Float32[Array, "#batchk d"],
-        train: bool = True,
+            self,
+            x: Float32[Array, "#batchk d"],
+            train: bool = True,
     ) -> Union[
         Float32[Array, "#batch num_cls"],
         Tuple[Float32[Array, "#batch num_cls"], Float32[Array, "#batch num_cls"]],

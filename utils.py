@@ -5,6 +5,7 @@ import os
 import math
 import time
 import json
+from tqdm import tqdm
 import pickle
 import re
 from typing import Tuple, Dict, Union, Callable, Iterator, Optional, List
@@ -21,6 +22,7 @@ from ml_collections import config_dict
 from typeguard import typechecked as typechecker
 
 import torch
+import torchvision
 from torchvision import transforms
 from data.inat import INatDataset, create_dataset
 
@@ -47,7 +49,7 @@ class UInt8orFP32(AbstractDtype):
 #     return transform
 
 
-def get_inat_data(data_dir: str, split: str, batch_size: int = 256, k=0):
+def get_inat_data(data_dir: str, split: str, batch_size: int = 64, k=0):
     # import pdb;
     # pdb.set_trace()
     num_devices = jax.local_device_count()
@@ -60,21 +62,30 @@ def get_inat_data(data_dir: str, split: str, batch_size: int = 256, k=0):
         batch_size=batch_size * num_devices,
         k=k
     )
-
+    # # transform = torchvision.transforms.Compose([
+    # #     # torchvision.transforms.Resize((224,224)),
+    # #     torchvision.transforms.CenterCrop((224,224)),
+    # #     torchvision.transforms.ToTensor(),
+    # #     torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    # # ])
+    # # imagenet_data = torchvision.datasets.ImageFolder(root=r'/datasets/imagenet/train/', transform=transform)
+    # # imagenet_loader = torch.utils.data.DataLoader(imagenet_data, batch_size=128, shuffle=True, num_workers=4)
+    # import pdb;pdb.set_trace()
     # s1 = time.time()
-    # for images, labels in dataset:
-    #     start_time = time.time()  # Start the timer
+    # for images, labels in tqdm(dataset):
+    #     # start_time = time.time()  # Start the timer
     #
     #     # Simulate some processing on the batch (optional)
     #     # time.sleep(0.1)  # You can remove this line, it's just for simulation
     #
     #     end_time = time.time()  # End the timer
-    #     batch_time = end_time - start_time
+    #     batch_time = end_time - s1
     #     # batch_times.append(batch_time)
-    #
     #     print(f"Batch  took {batch_time} seconds to load")
+    #     s1=time.time()
     # s2 = time.time()
     # print(f'full dataset took: {s2 - s1}')
+    # import pdb;pdb.set_trace()
     return dataset
 
 
