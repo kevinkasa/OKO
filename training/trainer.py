@@ -283,7 +283,7 @@ class OKOTrainer:
                 key_i, shape=(batch_size * (self.data_config.k + 2), H, W, C)
             )
 
-        batch = get_init_batch(64*jax.local_device_count())
+        batch = get_init_batch(64 * jax.local_device_count())
         batch = jax.device_put(batch, device=self.gpu_devices[0])
         if self.backbone == "resnet":
             if self.pretrained_variables is not None:  # use pretrained
@@ -449,7 +449,7 @@ class OKOTrainer:
             # Compute accuracy
             preds = jnp.argmax(logits, axis=-1)
             labels = jnp.argmax(y, axis=-1)
-
+            # pdb.set_trace()
             correct = (preds == labels).sum()
             total_correct += correct
             total_samples += len(labels)
@@ -469,6 +469,8 @@ class OKOTrainer:
         if latest_checkpoint:
             print(f"Resuming training from checkpoint: {latest_checkpoint}")
             # Returns the epoch number from the checkpoint filename
+            self.init_optim()
+
             last_epoch = self.load_model()
             start_epoch = last_epoch + 1
         else:
@@ -477,6 +479,7 @@ class OKOTrainer:
             start_epoch = 1
         # self.init_optim()
         # pdb.set_trace()
+
         for epoch in tqdm(range(start_epoch, self.optimizer_config.epochs + 1), desc="Epoch"):
 
             train_performance = self.train_epoch(batches=train_batches, train=True)
@@ -544,19 +547,31 @@ class OKOTrainer:
             pickle.dump(metrics, f)
 
     def save_model(self, epoch: int = 0) -> None:
+        # print('Saving model')
+        # # Unreplicate the state before saving
+        # unreplicated_state = jax.device_get(flax.jax_utils.unreplicate(self.state))
+        #
+        # if self.backbone == "resnet":
+        #     target = {
+        #         "params": unreplicated_state.params,
+        #         "batch_stats": unreplicated_state.batch_stats,
+        #     }
+        # else:
+        #     target = unreplicated_state.params
+        # checkpoints.save_checkpoint(
+        #     ckpt_dir=self.dir_config.log_dir, target=target, step=epoch, prefix=f"checkpoint_epoch_", overwrite=True
+        # )
         print('Saving model')
+
         # Unreplicate the state before saving
         unreplicated_state = jax.device_get(flax.jax_utils.unreplicate(self.state))
-
-        if self.backbone == "resnet":
-            target = {
-                "params": unreplicated_state.params,
-                "batch_stats": unreplicated_state.batch_stats,
-            }
-        else:
-            target = unreplicated_state.params
+        # Save the entire training state, including optimizer state
         checkpoints.save_checkpoint(
-            ckpt_dir=self.dir_config.log_dir, target=target, step=epoch, prefix=f"checkpoint_epoch_", overwrite=True
+            ckpt_dir=self.dir_config.log_dir,
+            target=unreplicated_state,
+            step=epoch,
+            prefix="checkpoint_epoch_",
+            overwrite=True
         )
 
     def load_model(self) -> int:
@@ -565,32 +580,49 @@ class OKOTrainer:
         if not latest_checkpoint:
             raise ValueError("No checkpoint found to load.")
 
-        if self.backbone == "resnet":
-            state_dict = checkpoints.restore_checkpoint(
-                ckpt_dir=self.dir_config.log_dir, target=None
-            )
-            # Replicate the loaded state for multi-GPU training
-            self.state = flax.jax_utils.replicate(TrainState.create(
-                apply_fn=self.model.apply,
-                params=state_dict["params"],
-                batch_stats=state_dict["batch_stats"],
-                tx=self.state.tx if self.state else optax.sgd(self.optimizer_config.lr, momentum=0.9),
-            ))
-        else:
-            params = checkpoints.restore_checkpoint(
-                ckpt_dir=self.dir_config.log_dir, target=None
-            )
-            # Replicate the loaded state for multi-GPU training
-            self.state = flax.jax_utils.replicate(TrainState.create(
-                apply_fn=self.model.apply,
-                params=params,
-                tx=self.state.tx if self.state else optax.adam(self.optimizer_config.lr),
-                batch_stats=None,
-            ))
+        # Initialize optimizer and state to set up the optimizer configuration
+        # Initialize optimizer and state to set up the optimizer configuration
+        self.init_optim()
+        # Unreplicate the state to match the checkpoint structure
+        unreplicated_state = jax.device_get(flax.jax_utils.unreplicate(self.state))
+
+        # Restore the checkpoint directly into a new state
+        unreplicated_state = checkpoints.restore_checkpoint(
+            ckpt_dir=self.dir_config.log_dir, target=unreplicated_state
+        )
+        # Replicate the state for multi-GPU training
+        self.state = flax.jax_utils.replicate(unreplicated_state)
 
         # Extract the epoch number from the checkpoint filename
         epoch = int(latest_checkpoint.split('_')[-1])
         return epoch
+        # pdb.set_trace()
+        # if self.backbone == "resnet":
+        #     state_dict = checkpoints.restore_checkpoint(
+        #         ckpt_dir=self.dir_config.log_dir, target=None
+        #     )
+        #     # Replicate the loaded state for multi-GPU training
+        #     self.state = flax.jax_utils.replicate(TrainState.create(
+        #         apply_fn=self.model.apply,
+        #         params=state_dict["params"],
+        #         batch_stats=state_dict["batch_stats"],
+        #         tx=self.state.tx if self.state else optax.sgd(self.optimizer_config.lr, momentum=0.9),
+        #     ))
+        # else:
+        #     params = checkpoints.restore_checkpoint(
+        #         ckpt_dir=self.dir_config.log_dir, target=None
+        #     )
+        #     # Replicate the loaded state for multi-GPU training
+        #     self.state = flax.jax_utils.replicate(TrainState.create(
+        #         apply_fn=self.model.apply,
+        #         params=params,
+        #         tx=self.state.tx if self.state else optax.adam(self.optimizer_config.lr),
+        #         batch_stats=None,
+        #     ))
+
+        # Extract the epoch number from the checkpoint filename
+        # epoch = int(latest_checkpoint.split('_')[-1])
+        # return epoch
 
     def __len__(self) -> int:
         return self.optimizer_config.epochs

@@ -199,6 +199,8 @@ def loss_fn_resnet(
         y: Float32[Array, "#batch num_cls"],
         target_type: str,
         train: bool = True,
+        k: int = 0,
+        rng = None,
 ) -> Tuple[Array, Tuple[Array]]:
     logits, new_state = resnet_predict(state, params, X, train)
     """
@@ -217,6 +219,75 @@ def loss_fn_resnet(
         loss = optax.softmax_cross_entropy(logits, y).mean()
     aux = (logits, new_state)
     return loss, aux
+
+    # if k == 0:
+    #     if target_type.startswith("soft"):
+    #         log_probs = jax.nn.log_softmax(logits, axis=-1)
+    #         loss = kl_divergence(y, log_probs).mean()
+    #     else:
+    #         loss = optax.softmax_cross_entropy(logits, y).mean()
+    #     aux = (logits, new_state)
+    #     return loss, aux
+    # else:
+    #     # Convert one-hot encoded labels to class indices for easier processing
+    #     y_classes = jnp.argmax(y, axis=-1)
+    #     batch_size = logits.shape[0]
+    #
+    #     # Create a mask for finding samples of the same class
+    #     same_class_mask = y_classes[:, None] == y_classes[None, :]
+    #
+    #     # Function to sample two same-class indices
+    #     def sample_same_class_indices(i, rng):
+    #         same_class_indices = jnp.where(same_class_mask[i])[0]
+    #         # These are indices not equal to the current sample
+    #         # e.g. if this == 1, there is only 1 other sample from the same class.
+    #         same_class_indices = same_class_indices[same_class_indices != i]
+    #         # Use jax.random.choice for sampling with replacement handling
+    #         if len(same_class_indices) >= 2:
+    #             # Randomly pick two indices if there are at least two
+    #             return jax.random.choice(rng, same_class_indices, (2,), replace=False)
+    #         elif len(same_class_indices) == 1:
+    #             # Use the two available indices (current sample + the single other same-class sample)
+    #             return jnp.array([i, same_class_indices[0]])
+    #         else:
+    #             # No other same-class samples, duplicate the current sample
+    #             return jnp.array([i, i])
+    #
+    #     # Function to sample one different-class index
+    #     def sample_diff_class_index(i, rng):
+    #         diff_class_indices = jnp.where(~same_class_mask[i])[0]
+    #         if len(diff_class_indices) >= 1:
+    #             # Randomly pick one different-class index
+    #             return jax.random.choice(rng, diff_class_indices, ())
+    #         else:
+    #             # If no different-class samples are found, fallback or handle as needed
+    #             raise ValueError("Not enough different-class samples to select from.")
+    #
+    #     # Vectorized sampling across the batch with new RNG keys for each sample
+    #     rng, rng_same, rng_diff = jax.random.split(random.PRNGKey(42))
+    #     same_class_samples = jax.vmap(sample_same_class_indices)(jnp.arange(batch_size),
+    #                                                              jax.random.split(rng_same, batch_size))
+    #     diff_class_samples = jax.vmap(sample_diff_class_index)(jnp.arange(batch_size),
+    #                                                            jax.random.split(rng_diff, batch_size))
+    #     # Collect all indices for the set
+    #     set_indices = jnp.concatenate(
+    #         [jnp.expand_dims(jnp.arange(batch_size), axis=1), same_class_samples,
+    #          jnp.expand_dims(diff_class_samples, axis=1)], axis=1
+    #     )
+    #     # Gather logits based on the sampled indices
+    #     set_logits = logits[set_indices]
+    #     # Average or sum logits for each set
+    #     averaged_logits = jnp.sum(set_logits, axis=1)
+    #     # Compute cross-entropy loss on the averaged/summed logits
+    #     if target_type.startswith("soft"):
+    #         log_probs = jax.nn.log_softmax(averaged_logits, axis=-1)
+    #         loss = kl_divergence(y, log_probs).mean()
+    #     else:
+    #         loss = optax.softmax_cross_entropy(averaged_logits, y).mean()
+    #
+    #     # Return computed loss and auxiliary data
+    #     aux = (averaged_logits, new_state)
+    #     return loss, aux
 
 
 def loss_fn_vit(

@@ -49,7 +49,7 @@ class UInt8orFP32(AbstractDtype):
 #     return transform
 
 
-def get_inat_data(data_dir: str, split: str, batch_size: int = 64, k=0):
+def get_inat_data(data_dir: str, split: str, batch_size: int = 64, k=0, k_categ: str = None):
     # import pdb;
     # pdb.set_trace()
     num_devices = jax.local_device_count()
@@ -60,7 +60,8 @@ def get_inat_data(data_dir: str, split: str, batch_size: int = 64, k=0):
         year=2019,
         category='name',
         batch_size=batch_size * num_devices,
-        k=k
+        k=k,
+        k_categ=k_categ
     )
     # # transform = torchvision.transforms.Compose([
     # #     # torchvision.transforms.Resize((224,224)),

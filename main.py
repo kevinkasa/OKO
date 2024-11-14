@@ -109,6 +109,13 @@ def parseargs():
         help="number of odd classes in a set of k+2 examples with 2 examples coming from the same class. If k ==0, regular CE training",
     )
     aa(
+        "--k-categ",
+        type=str,
+        default=None,
+        help="Hierarchical category to draw odd-k sample from. Default is None",
+    )
+
+    aa(
         "--targets",
         type=str,
         default="hard",
@@ -307,7 +314,7 @@ def create_dirs(
 @jaxtyped
 @typechecker
 def get_splits(
-        dataset: str, k=0
+        dataset: str, k=0, k_categ=None,
 ):
     if dataset != 'i_naturalist2019':
         train_set = utils.get_data(dataset, split="train")
@@ -317,9 +324,9 @@ def get_splits(
         data_dir = r'/scratch/ssd004/scratch/kkasa/data/inat_comp/2019/'
         # data_dir = r'/h/kkasa/datasets/inat_comp/2019/'
         # Load training, validation, or test dataset as tf.data.Dataset
-        train_set = utils.get_inat_data(data_dir, "train", k=k)
-        val_set = utils.get_inat_data(data_dir, "val", k=k)  # TODO: Split val set?
-        test_set = utils.get_inat_data(data_dir, "val", k=k)
+        train_set = utils.get_inat_data(data_dir, "train", k=k, k_categ=k_categ)
+        val_set = utils.get_inat_data(data_dir, "val", k=k, k_categ=k_categ)  # TODO: Split val set?
+        test_set = utils.get_inat_data(data_dir, "val", k=k, k_categ=k_categ)
         # pdb.set_trace()
     return (train_set, val_set, test_set)
 
@@ -744,7 +751,7 @@ if __name__ == "__main__":
     random.seed(args.seeds)
     np.random.seed(args.seeds)
 
-    train_set, val_set, test_set = get_splits(args.dataset, k=args.k)
+    train_set, val_set, test_set = get_splits(args.dataset, k=args.k, k_categ=args.k_categ)
 
     # TODO: For iNat we do not want to do any subsampling
     # train_set = get_fs_subset(
