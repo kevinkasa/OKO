@@ -2,13 +2,15 @@ from collections import defaultdict
 import os
 import json
 import pdb
+import random
 
 # from torchvision.datasets import ImageFolder
 from torchvision.datasets.folder import ImageFolder, default_loader
-from torchvision import transforms
 import torch
 import numpy as np
 from timm.data.loader import create_loader
+from PIL import ImageFilter, ImageOps
+from torchvision import transforms
 
 from data.samplers import BalancedBatchSamplerV3, EfficientMinSamplesPerClassSampler
 
@@ -71,7 +73,6 @@ class INatDataset(ImageFolder):
             tuple: (sample, target) where target is class_index of the target class.
         """
         # import pdb
-        # pdb.set_trace()
         # regular training when k=0 or when testing
         # if (self.k == 0) or (self.split == 'val'):
         path, target = self.samples[index]
@@ -153,7 +154,6 @@ class INatOKODataset(ImageFolder):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
-        # pdb.set_trace()
         # current sample
         cur_path, cur_target = self.samples[index]
 
@@ -225,25 +225,9 @@ class INatOKODatasetHardK(ImageFolder):
 
         self.nb_classes = len(self.targeter)
 
-        # Build reverse mapping from class labels to category names
-        self.class_label_to_category_name = {v: k for k, v in self.targeter.items()}
-        # Build mapping from category names to hierarchy categories
-        self.category_name_to_hierarchy_category = {}
-        # pdb.set_trace()
-        for class_info in self.data_catg:
-            category_name = class_info[category]
-            hierarchy_category = class_info[hierarchy_level]
-            self.category_name_to_hierarchy_category[category_name] = hierarchy_category
-        # pdb.set_trace()
-
-        # Build mapping from class labels to hierarchy categories
-        self.class_label_to_hierarchy_category = {
-            class_label: self.category_name_to_hierarchy_category[category_name]
-            for class_label, category_name in self.class_label_to_category_name.items()
-        }
-
         self.samples = []
         self.samples_by_class = {}
+        self.class_label_to_hierarchy_category = defaultdict(int)  # {species_id: hierarchy category}
 
         for elem in self.data['images']:
             cut = elem['file_name'].split('/')
@@ -257,12 +241,14 @@ class INatOKODatasetHardK(ImageFolder):
                 self.samples_by_class[target_current_true] = []
             self.samples_by_class[target_current_true].append(path_current)
 
+            self.class_label_to_hierarchy_category[target_current] = categors[self.hierarchy_level]
+
         # Precompute other classes for each class within the same hierarchy category
         # Initialize an empty dictionary to hold other classes for each class
         self.other_classes = {}
-        # pdb.set_trace()
         # Loop over each class label in the dataset
         for class_label in self.samples_by_class.keys():
+
             # Get the hierarchy category for the current class
             current_hierarchy_category = self.class_label_to_hierarchy_category[class_label]
 
@@ -270,14 +256,14 @@ class INatOKODatasetHardK(ImageFolder):
             other_classes_list = []
 
             # Loop over all possible class labels
-            for l in self.samples_by_class.keys():
+            for k_label in self.samples_by_class.keys():
                 # Skip if it's the same class
-                if l == class_label:
+                if k_label == class_label:
                     continue
                 # Check if the class 'l' has the same hierarchy category as the current class
-                if self.class_label_to_hierarchy_category[l] == current_hierarchy_category:
+                if self.class_label_to_hierarchy_category[k_label] == current_hierarchy_category:
                     # Add the class label to the list
-                    other_classes_list.append(l)
+                    other_classes_list.append(k_label)
 
             # Convert the list to a NumPy array and assign it to the dictionary
             self.other_classes[class_label] = np.array(other_classes_list)
@@ -290,20 +276,17 @@ class INatOKODatasetHardK(ImageFolder):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
-        # pdb.set_trace()
         # current sample
         cur_path, cur_target = self.samples[index]
 
         # Select a random sample from the same class
         same_class_samples = self.samples_by_class[cur_target]
         same_class_path = np.random.choice(same_class_samples)
-        # pdb.set_trace()
         # Select a random sample from a different class for the odd-k sample
         different_class_label = np.random.choice(self.other_classes[cur_target])
 
         different_class_samples = self.samples_by_class[different_class_label]
         different_class_path = np.random.choice(different_class_samples)
-
         # path, target = self.samples[index]
         cur_sample = self.loader(cur_path)
         if self.transform is not None:
@@ -325,13 +308,78 @@ class INatOKODatasetHardK(ImageFolder):
         return torch.cat(images, dim=0), cur_target
 
 
+class GaussianBlur(object):
+    """
+    Apply Gaussian Blur to the PIL image.
+    """
+
+    def __init__(self, p=0.1, radius_min=0.1, radius_max=2.):
+        self.prob = p
+        self.radius_min = radius_min
+        self.radius_max = radius_max
+
+    def __call__(self, img):
+        do_it = random.random() <= self.prob
+        if not do_it:
+            return img
+
+        img = img.filter(
+            ImageFilter.GaussianBlur(
+                radius=random.uniform(self.radius_min, self.radius_max)
+            )
+        )
+        return img
+
+
+class Solarization(object):
+    """
+    Apply Solarization to the PIL image.
+    """
+
+    def __init__(self, p=0.2):
+        self.p = p
+
+    def __call__(self, img):
+        if random.random() < self.p:
+            return ImageOps.solarize(img)
+        else:
+            return img
+
+
+class GrayScale(object):
+    """
+    GrayScale the PIL image.
+    """
+
+    def __init__(self, p=0.2):
+        self.p = p
+        self.transf = transforms.Grayscale(3)
+
+    def __call__(self, img):
+        if random.random() < self.p:
+            return self.transf(img)
+        else:
+            return img
+
+
 def create_dataset(data_dir, split, year, category, batch_size, k_categ, k=0, ):
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop((224, 224)),
         transforms.RandomHorizontalFlip(),
+        transforms.RandomChoice([GrayScale(p=1.0),
+                                 Solarization(p=1.0),
+                                 GaussianBlur(p=1.0)]),
+        transforms.ColorJitter(0.3, 0.3, 0.3),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
+
+    test_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
     # dataset = INatDataset(data_dir, split=split, year=year, category=category, transform=transform)
 
     # if split == 'train':
@@ -345,54 +393,23 @@ def create_dataset(data_dir, split, year, category, batch_size, k_categ, k=0, ):
     #                                               persistent_workers=False)
 
     if (k == 0) or (split != 'train'):
-        dataset = INatDataset(data_dir, split=split, year=year, category=category, transform=transform)
-    else:
-        if k_categ == None:
-            dataset = INatOKODataset(data_dir, split=split, year=year, category=category, k=k, transform=transform)
+        if split == 'train':
+            dataset = INatDataset(data_dir, split=split, year=year, category=category, transform=train_transform)
         else:
-            dataset = INatOKODatasetHardK(data_dir, split=split, year=year, category=category, k=k, transform=transform,
+            dataset = INatDataset(data_dir, split=split, year=year, category=category, transform=test_transform)
+    else:
+        print(f'Odd-K hierarchy category: {k_categ}')
+        if k_categ == None:
+            dataset = INatOKODataset(data_dir, split=split, year=year, category=category, k=k,
+                                     transform=train_transform)
+        else:
+            dataset = INatOKODatasetHardK(data_dir, split=split, year=year, category=category, k=k,
+                                          transform=train_transform,
                                           hierarchy_level=k_categ)
 
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=(split == 'train'),
-                                              num_workers=8, drop_last=True, pin_memory=False, persistent_workers=False)
+                                              num_workers=7, drop_last=True, pin_memory=False, persistent_workers=False)
 
     # data_loader = create_loader(dataset, batch_size=batch_size, input_size=(3, 224, 224), use_prefetcher=False,
     # num_workers=2, distributed=False)
     return data_loader
-
-
-if __name__ == '__main__':
-    import time
-    from tqdm import tqdm
-
-    split = 'train'
-    batch_size = 64
-    data_dir = r'/scratch/ssd004/scratch/kkasa/data/inat_comp/2019/'
-    k = 1
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-    dataset = INatOKODataset(data_dir, split='train', year=2019, category='name', transform=transform)
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=(split == 'train'),
-                                              num_workers=8, drop_last=True, pin_memory=False, persistent_workers=False)
-    s1 = time.time()
-
-    for images, labels in tqdm(dataset):
-        start_time = time.time()  # Start the timer
-
-        # Simulate some processing on the batch (optional)
-        # time.sleep(0.1)  # You can remove this line, it's just for simulation
-
-        end_time = time.time()  # End the timer
-        batch_time = end_time - s1
-        # batch_times.append(batch_time)
-        print(f"Batch  took {batch_time} seconds to load")
-        s1 = time.time()
-    s2 = time.time()
-    print(f'full dataset took: {s2 - s1}')
-    import pdb;
-
-    # pdb.set_trace()
